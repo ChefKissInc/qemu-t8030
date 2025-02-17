@@ -39,17 +39,10 @@ void precopy_add_notifier(NotifierWithReturn *n);
 void precopy_remove_notifier(NotifierWithReturn *n);
 int precopy_notify(PrecopyNotifyReason reason, Error **errp);
 
-void ram_mig_init(void);
 void qemu_guest_free_page_hint(void *addr, size_t len);
 bool migrate_ram_is_ignored(RAMBlock *block);
 
 /* migration/block.c */
-
-#ifdef CONFIG_LIVE_BLOCK_MIGRATION
-void blk_mig_init(void);
-#else
-static inline void blk_mig_init(void) {}
-#endif
 
 AnnounceParameters *migrate_announce_params(void);
 /* migration/savevm.c */
@@ -59,11 +52,11 @@ void dump_vmstate_json_to_file(FILE *out_fp);
 /* migration/migration.c */
 void migration_object_init(void);
 void migration_shutdown(void);
-bool migration_is_idle(void);
+
 bool migration_is_active(void);
 bool migration_is_device(void);
+bool migration_is_running(void);
 bool migration_thread_is_self(void);
-bool migration_is_setup_or_active(void);
 
 typedef enum MigrationEventType {
     MIG_EVENT_PRECOPY_SETUP,
@@ -102,8 +95,7 @@ void migration_add_notifier_mode(NotifierWithReturn *notify,
                                  MigrationNotifyFunc func, MigMode mode);
 
 void migration_remove_notifier(NotifierWithReturn *notify);
-bool migration_is_running(void);
-void migration_file_set_error(int err);
+void migration_file_set_error(int ret, Error *err);
 
 /* True if incoming migration entered POSTCOPY_INCOMING_DISCARD */
 bool migration_in_incoming_postcopy(void);
@@ -113,8 +105,5 @@ bool migration_incoming_postcopy_advised(void);
 
 /* True if background snapshot is active */
 bool migration_in_bg_snapshot(void);
-
-/* migration/block-dirty-bitmap.c */
-void dirty_bitmap_mig_init(void);
 
 #endif

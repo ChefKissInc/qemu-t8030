@@ -1,7 +1,7 @@
 /*
  * Apple PMU D2255.
  *
- * Copyright (c) 2023-2024 Visual Ehrmanntraut.
+ * Copyright (c) 2023-2025 Visual Ehrmanntraut.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -52,7 +52,5 @@ struct PMUD2255State {
     uint16_t address;
     enum PMUAddrState address_state;
 };
-
-PMUD2255State *pmu_d2255_create(MachineState *machine, uint8_t addr);
 
 #endif

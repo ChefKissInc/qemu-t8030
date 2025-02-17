@@ -20,6 +20,7 @@
 #include "qemu/osdep.h"
 #include "cpu.h"
 #include "exec/exec-all.h"
+#include "exec/page-protection.h"
 #include "qemu/error-report.h"
 #include "sysemu/kvm.h"
 #include "kvm_ppc.h"
@@ -27,6 +28,38 @@
 #include "internal.h"
 #include "mmu-radix64.h"
 #include "mmu-book3s-v3.h"
+#include "mmu-books.h"
+
+/* Radix Partition Table Entry Fields */
+#define PATE1_R_PRTB           0x0FFFFFFFFFFFF000
+#define PATE1_R_PRTS           0x000000000000001F
+
+/* Radix Process Table Entry Fields */
+#define PRTBE_R_GET_RTS(rts) \
+    ((((rts >> 58) & 0x18) | ((rts >> 5) & 0x7)) + 31)
+#define PRTBE_R_RPDB            0x0FFFFFFFFFFFFF00
+#define PRTBE_R_RPDS            0x000000000000001F
+
+/* Radix Page Directory/Table Entry Fields */
+#define R_PTE_VALID             0x8000000000000000
+#define R_PTE_LEAF              0x4000000000000000
+#define R_PTE_SW0               0x2000000000000000
+#define R_PTE_RPN               0x01FFFFFFFFFFF000
+#define R_PTE_SW1               0x0000000000000E00
+#define R_GET_SW(sw)            (((sw >> 58) & 0x8) | ((sw >> 9) & 0x7))
+#define R_PTE_R                 0x0000000000000100
+#define R_PTE_C                 0x0000000000000080
+#define R_PTE_ATT               0x0000000000000030
+#define R_PTE_ATT_NORMAL        0x0000000000000000
+#define R_PTE_ATT_SAO           0x0000000000000010
+#define R_PTE_ATT_NI_IO         0x0000000000000020
+#define R_PTE_ATT_TOLERANT_IO   0x0000000000000030
+#define R_PTE_EAA_PRIV          0x0000000000000008
+#define R_PTE_EAA_R             0x0000000000000004
+#define R_PTE_EAA_RW            0x0000000000000002
+#define R_PTE_EAA_X             0x0000000000000001
+#define R_PDE_NLB               PRTBE_R_RPDB
+#define R_PDE_NLS               PRTBE_R_RPDS
 
 static bool ppc_radix64_get_fully_qualified_addr(const CPUPPCState *env,
                                                  vaddr eaddr,
@@ -179,12 +212,29 @@ static void ppc_radix64_raise_hsi(PowerPCCPU *cpu, MMUAccessType access_type,
     }
 }
 
+static int ppc_radix64_get_prot_eaa(uint64_t pte)
+{
+    return (pte & R_PTE_EAA_R ? PAGE_READ : 0) |
+           (pte & R_PTE_EAA_RW ? PAGE_READ | PAGE_WRITE : 0) |
+           (pte & R_PTE_EAA_X ? PAGE_EXEC : 0);
+}
+
+static int ppc_radix64_get_prot_amr(const PowerPCCPU *cpu)
+{
+    const CPUPPCState *env = &cpu->env;
+    int amr = env->spr[SPR_AMR] >> 62; /* We only care about key0 AMR63:62 */
+    int iamr = env->spr[SPR_IAMR] >> 62; /* We only care about key0 IAMR63:62 */
+
+    return (amr & 0x2 ? 0 : PAGE_WRITE) | /* Access denied if bit is set */
+           (amr & 0x1 ? 0 : PAGE_READ) |
+           (iamr & 0x1 ? 0 : PAGE_EXEC);
+}
+
 static bool ppc_radix64_check_prot(PowerPCCPU *cpu, MMUAccessType access_type,
                                    uint64_t pte, int *fault_cause, int *prot,
                                    int mmu_idx, bool partition_scoped)
 {
     CPUPPCState *env = &cpu->env;
-    int need_prot;
 
     /* Check Page Attributes (pte58:59) */
     if ((pte & R_PTE_ATT) == R_PTE_ATT_NI_IO && access_type == MMU_INST_FETCH) {
@@ -209,8 +259,8 @@ static bool ppc_radix64_check_prot(PowerPCCPU *cpu, MMUAccessType access_type,
     }
 
     /* Check if requested access type is allowed */
-    need_prot = prot_for_access_type(access_type);
-    if (need_prot & ~*prot) { /* Page Protected for that Access */
+    if (!check_prot_access_type(*prot, access_type)) {
+        /* Page Protected for that Access */
         *fault_cause |= access_type == MMU_INST_FETCH ? SRR1_NOEXEC_GUARD :
                                                         DSISR_PROTFAULT;
         return true;
@@ -677,9 +727,7 @@ static bool ppc_radix64_xlate_impl(PowerPCCPU *cpu, vaddr eaddr,
 
     /* Get Partition Table */
     if (cpu->vhyp) {
-        PPCVirtualHypervisorClass *vhc;
-        vhc = PPC_VIRTUAL_HYPERVISOR_GET_CLASS(cpu->vhyp);
-        if (!vhc->get_pate(cpu->vhyp, cpu, lpid, &pate)) {
+        if (!cpu->vhyp_class->get_pate(cpu->vhyp, cpu, lpid, &pate)) {
             if (guest_visible) {
                 ppc_radix64_raise_hsi(cpu, access_type, eaddr, eaddr,
                                       DSISR_R_BADCONFIG);

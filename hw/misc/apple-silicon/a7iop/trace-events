@@ -1,7 +1,7 @@
-# rtbuddy.c
+# rtkit.c
 
-apple_rtbuddy_handle_mgmt_msg(const char *role, uint64_t raw, int state) "%s 0x%016" PRIx64 " state %d" 
-apple_rtbuddy_rollcall_finished(const char *role) "%s"
-apple_rtbuddy_mgmt_send_hello(const char *role) "%s"
-apple_rtbuddy_iop_start(const char *role) "%s"
-apple_rtbuddy_iop_wakeup(const char *role) "%s"
+apple_rtkit_handle_mgmt_msg(const char *role, uint64_t raw, int ep0_status, int msg_type) "%s 0x%016" PRIx64 " ep0_status %d msg_type %d" 
+apple_rtkit_rollcall_finished(const char *role) "%s"
+apple_rtkit_mgmt_send_hello(const char *role) "%s"
+apple_rtkit_iop_start(const char *role) "%s"
+apple_rtkit_iop_wakeup(const char *role) "%s"

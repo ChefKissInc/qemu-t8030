@@ -157,10 +157,12 @@ SGXInfo *qmp_query_sgx_capabilities(Error **errp)
 {
     SGXInfo *info = NULL;
     uint32_t eax, ebx, ecx, edx;
+    Error *local_err = NULL;
 
-    int fd = qemu_open_old("/dev/sgx_vepc", O_RDWR);
+    int fd = qemu_open("/dev/sgx_vepc", O_RDWR, &local_err);
     if (fd < 0) {
-        error_setg(errp, "SGX is not enabled in KVM");
+        error_append_hint(&local_err, "SGX is not enabled in KVM");
+        error_propagate(errp, local_err);
         return NULL;
     }
 
@@ -264,12 +266,22 @@ void hmp_info_sgx(Monitor *mon, const QDict *qdict)
                    size);
 }
 
+bool check_sgx_support(void)
+{
+    if (!object_dynamic_cast(qdev_get_machine(), TYPE_PC_MACHINE)) {
+        return false;
+    }
+    return true;
+}
+
 bool sgx_epc_get_section(int section_nr, uint64_t *addr, uint64_t *size)
 {
-    PCMachineState *pcms = PC_MACHINE(qdev_get_machine());
+    PCMachineState *pcms =
+        (PCMachineState *)object_dynamic_cast(qdev_get_machine(),
+                                              TYPE_PC_MACHINE);
     SGXEPCDevice *epc;
 
-    if (pcms->sgx_epc.size == 0 || pcms->sgx_epc.nr_sections <= section_nr) {
+    if (!pcms || pcms->sgx_epc.size == 0 || pcms->sgx_epc.nr_sections <= section_nr) {
         return true;
     }
 

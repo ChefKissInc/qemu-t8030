@@ -1,5 +1,5 @@
 /*
- *  Copyright(c) 2021-2023 Qualcomm Innovation Center, Inc. All Rights Reserved.
+ *  Copyright(c) 2021-2024 Qualcomm Innovation Center, Inc. All Rights Reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -231,6 +231,7 @@ static void test_masked_store(bool invert)
 static void test_new_value_store(void)
 {
     void *p0 = buffer0;
+    void *p1 = buffer1;
     void *pout = output;
 
     asm("{\n\t"
@@ -240,6 +241,19 @@ static void test_new_value_store(void)
         : : "r"(p0), "r"(pout) : "v2", "memory");
 
     expect[0] = buffer0[0];
+
+    check_output_w(__LINE__, 1);
+
+    /* Test the .new read from the high half of a pair */
+    asm("v7 = vmem(%0 + #0)\n\t"
+        "v12 = vmem(%1 + #0)\n\t"
+        "{\n\t"
+        "    v5:4 = vcombine(v12, v7)\n\t"
+        "    vmem(%2 + #0) = v5.new\n\t"
+        "}\n\t"
+        : : "r"(p0), "r"(p1), "r"(pout) : "v4", "v5", "v7", "v12", "memory");
+
+    expect[0] = buffer1[0];
 
     check_output_w(__LINE__, 1);
 }
@@ -460,6 +474,27 @@ static void test_vcombine(void)
     check_output_w(__LINE__, BUFSIZE);
 }
 
+void test_store_new()
+{
+    asm volatile(
+        "r0 = #0x12345678\n"
+        "v0 = vsplat(r0)\n"
+        "r0 = #0xff00ff00\n"
+        "v1 = vsplat(r0)\n"
+        "{\n"
+        "   vdeal(v1,v0,r0)\n"
+        "   vmem(%0) = v0.new\n"
+        "}\n"
+        :
+        : "r"(&output[0])
+        : "r0", "v0", "v1", "memory"
+    );
+    for (int i = 0; i < MAX_VEC_SIZE_BYTES / 4; i++) {
+        expect[0].w[i] = 0x12345678;
+    }
+    check_output_w(__LINE__, 1);
+}
+
 int main()
 {
     init_buffers();
@@ -500,6 +535,8 @@ int main()
     test_load_cur_predicated();
 
     test_vcombine();
+
+    test_store_new();
 
     puts(err ? "FAIL" : "PASS");
     return err ? 1 : 0;

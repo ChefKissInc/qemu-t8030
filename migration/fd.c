@@ -20,9 +20,34 @@
 #include "file.h"
 #include "migration.h"
 #include "monitor/monitor.h"
+#include "qemu/error-report.h"
+#include "qemu/sockets.h"
 #include "io/channel-util.h"
 #include "trace.h"
 
+static bool fd_is_pipe(int fd)
+{
+    struct stat statbuf;
+
+    if (fstat(fd, &statbuf) == -1) {
+        return false;
+    }
+
+    return S_ISFIFO(statbuf.st_mode);
+}
+
+static bool migration_fd_valid(int fd)
+{
+    if (fd_is_socket(fd)) {
+        return true;
+    }
+
+    if (fd_is_pipe(fd)) {
+        return true;
+    }
+
+    return false;
+}
 
 void fd_start_outgoing_migration(MigrationState *s, const char *fdname, Error **errp)
 {
@@ -30,6 +55,11 @@ void fd_start_outgoing_migration(MigrationState *s, const char *fdname, Error **
     int fd = monitor_get_fd(monitor_cur(), fdname, errp);
     if (fd == -1) {
         return;
+    }
+
+    if (!migration_fd_valid(fd)) {
+        warn_report("fd: migration to a file is deprecated."
+                    " Use file: instead.");
     }
 
     trace_migration_fd_outgoing(fd);
@@ -59,6 +89,11 @@ void fd_start_incoming_migration(const char *fdname, Error **errp)
     int fd = monitor_fd_param(monitor_cur(), fdname, errp);
     if (fd == -1) {
         return;
+    }
+
+    if (!migration_fd_valid(fd)) {
+        warn_report("fd: migration to a file is deprecated."
+                    " Use file: instead.");
     }
 
     trace_migration_fd_incoming(fd);

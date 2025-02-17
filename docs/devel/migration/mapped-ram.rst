@@ -16,7 +16,7 @@ location in the file, rather than constantly being added to a
 sequential stream. Having the pages at fixed offsets also allows the
 usage of O_DIRECT for save/restore of the migration stream as the
 pages are ensured to be written respecting O_DIRECT alignment
-restrictions (direct-io support not yet implemented).
+restrictions.
 
 Usage
 -----
@@ -35,12 +35,16 @@ Use a ``file:`` URL for migration:
 Mapped-ram migration is best done non-live, i.e. by stopping the VM on
 the source side before migrating.
 
+For best performance enable the ``direct-io`` parameter as well:
+
+    ``migrate_set_parameter direct-io on``
+
 Use-cases
 ---------
 
 The mapped-ram feature was designed for use cases where the migration
 stream will be directed to a file in the filesystem and not
-immediately restored on the destination VM [#]_. These could be
+immediately restored on the destination VM\ [#alternatives]_. These could be
 thought of as snapshots. We can further categorize them into live and
 non-live.
 
@@ -66,7 +70,7 @@ mapped-ram in this scenario is portability since background-snapshot
 depends on async dirty tracking (KVM_GET_DIRTY_LOG) which is not
 supported outside of Linux.
 
-.. [#] While this same effect could be obtained with the usage of
+.. [#alternatives] While this same effect could be obtained with the usage of
        snapshots or the ``file:`` migration alone, mapped-ram provides
        a performance increase for VMs with larger RAM sizes (10s to
        100s of GiBs), specially if the VM has been stopped beforehand.

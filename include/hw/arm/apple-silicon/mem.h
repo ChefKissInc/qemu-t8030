@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2019 Jonathan Afek <jonyafek@me.com>
+ * Copyright (c) 2025 Visual Ehrmanntraut (VisualEhrmanntraut).
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,28 +26,34 @@
 
 #include "qemu/osdep.h"
 #include "exec/hwaddr.h"
+#include "hw/arm/apple-silicon/dtb.h"
 
 extern hwaddr g_virt_base;
 extern hwaddr g_phys_base;
 extern hwaddr g_virt_slide;
 extern hwaddr g_phys_slide;
 
+#define ROUND_UP_16K(v) ROUND_UP(v, 0x4000)
+
 hwaddr vtop_static(hwaddr va);
 hwaddr ptov_static(hwaddr pa);
+hwaddr vtop_slid(hwaddr va);
 hwaddr vtop_mmu(hwaddr va, CPUState *cs);
-
-hwaddr align_16k_low(hwaddr addr);
-hwaddr align_16k_high(hwaddr addr);
-hwaddr align_up(hwaddr addr, hwaddr alignment);
 
 hwaddr vtop_bases(hwaddr va, hwaddr phys_base, hwaddr virt_base);
 hwaddr ptov_bases(hwaddr pa, hwaddr phys_base, hwaddr virt_base);
 
-uint8_t get_highest_different_bit_index(hwaddr addr1, hwaddr addr2);
-uint8_t get_lowest_non_zero_bit_index(hwaddr addr);
-hwaddr get_low_bits_mask_for_bit_index(uint8_t bit_index);
+MemoryRegion *allocate_ram(MemoryRegion *top, const char *name, hwaddr addr,
+                           hwaddr size, int priority);
 
-void allocate_ram(MemoryRegion *top, const char *name, hwaddr addr, hwaddr size,
-                  int priority);
+typedef struct CarveoutAllocator CarveoutAllocator;
+
+/// Creates a new carveout allocator
+CarveoutAllocator *carveout_alloc_new(DTBNode *carveout_mmap, hwaddr dram_base,
+                                      hwaddr dram_size, hwaddr alignment);
+/// Returns the address of the allocated region.
+hwaddr carveout_alloc_mem(CarveoutAllocator *ca, hwaddr size);
+/// Returns the kernel region size.
+hwaddr carveout_alloc_finalise(CarveoutAllocator *ca);
 
 #endif /* HW_ARM_APPLE_SILICON_MEM_H */

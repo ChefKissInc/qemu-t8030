@@ -145,13 +145,13 @@ was installed in the ``site-packages`` directory of another interpreter,
 or with the wrong ``pip`` program.
 
 If a package is available for the chosen interpreter, ``configure``
-prepares a small script that invokes it from the venv itself[#distlib]_.
+prepares a small script that invokes it from the venv itself\ [#distlib]_.
 If not, ``configure`` can also optionally install dependencies in the
 virtual environment with ``pip``, either from wheels in ``python/wheels``
 or by downloading the package with PyPI.  Downloading can be disabled with
 ``--disable-download``; and anyway, it only happens when a ``configure``
 option (currently, only ``--enable-docs``) is explicitly enabled but
-the dependencies are not present[#pip]_.
+the dependencies are not present\ [#pip]_.
 
 .. [#distlib] The scripts are created based on the package's metadata,
               specifically the ``console_script`` entry points.  This is the
@@ -185,14 +185,13 @@ Bundled Python packages
 
 Python packages that are **mandatory** dependencies to build QEMU,
 but are not available in all supported distros, are bundled with the
-QEMU sources.  Currently this includes Meson (outdated in CentOS 8
-and derivatives, Ubuntu 20.04 and 22.04, and openSUSE Leap) and tomli
-(absent in Ubuntu 20.04).
+QEMU sources.  The only one is currently Meson (outdated in Ubuntu
+22.04 and openSUSE Leap).
 
-If you need to update these, please do so by modifying and rerunning
-``python/scripts/vendor.py``.  This script embeds the sha256 hash of
-package sources and checks it.  The pypi.org web site provides an easy
-way to retrieve the sha256 hash of the sources.
+In order to include a new or updated wheel, modify and rerun the
+``python/scripts/vendor.py`` script.  The script embeds the
+sha256 hash of package sources and checks it.  The pypi.org web site
+provides an easy way to retrieve the sha256 hash of the sources.
 
 
 Stage 2: Meson
@@ -236,14 +235,10 @@ Subsystem sourcesets:
   are then turned into static libraries as follows::
 
     libchardev = static_library('chardev', chardev_ss.sources(),
-                                name_suffix: 'fa',
                                 build_by_default: false)
 
-    chardev = declare_dependency(link_whole: libchardev)
-
-  As of Meson 0.55.1, the special ``.fa`` suffix should be used for everything
-  that is used with ``link_whole``, to ensure that the link flags are placed
-  correctly in the command line.
+    chardev = declare_dependency(objects: libchardev.extract_all_objects(recursive: false),
+                                 dependencies: chardev_ss.dependencies())
 
 Target-independent emulator sourcesets:
   Various general purpose helper code is compiled only once and
@@ -338,7 +333,7 @@ into each emulator:
 
 ``default-configs/targets/*.mak``
   These files mostly define symbols that appear in the ``*-config-target.h``
-  file for each emulator [#cfgtarget]_.  However, the ``TARGET_ARCH``
+  file for each emulator\ [#cfgtarget]_.  However, the ``TARGET_ARCH``
   and ``TARGET_BASE_ARCH`` will also be used to select the ``hw/`` and
   ``target/`` subdirectories that are compiled into each target.
 

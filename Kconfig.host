@@ -5,6 +5,12 @@
 config LINUX
     bool
 
+config LIBCBOR
+    bool
+
+config GNUTLS
+    bool
+
 config OPENGL
     bool
 
@@ -23,6 +29,9 @@ config IVSHMEM
 config TPM
     bool
 
+config FDT
+    bool
+
 config VHOST_USER
     bool
 
@@ -33,9 +42,6 @@ config VHOST_KERNEL
     bool
 
 config VIRTFS
-    bool
-
-config PVRDMA
     bool
 
 config MULTIPROCESS_ALLOWED
@@ -51,4 +57,7 @@ config VFIO_USER_SERVER_ALLOWED
     imply VFIO_USER_SERVER
 
 config HV_BALLOON_POSSIBLE
+    bool
+
+config HAVE_RUST
     bool

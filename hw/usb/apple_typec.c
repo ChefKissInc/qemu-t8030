@@ -161,7 +161,7 @@ static void apple_typec_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = apple_typec_realize;
-    dc->reset = apple_typec_reset;
+    device_class_set_legacy_reset(dc, apple_typec_reset);
     dc->desc = "Apple Type C USB PHY";
     dc->vmsd = &vmstate_apple_typec;
     device_class_set_props(dc, apple_typec_properties);

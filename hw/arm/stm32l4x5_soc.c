@@ -1,8 +1,8 @@
 /*
  * STM32L4x5 SoC family
  *
- * Copyright (c) 2023 Arnaud Minier <arnaud.minier@telecom-paris.fr>
- * Copyright (c) 2023 Inès Varhol <ines.varhol@telecom-paris.fr>
+ * Copyright (c) 2023-2024 Arnaud Minier <arnaud.minier@telecom-paris.fr>
+ * Copyright (c) 2023-2024 Inès Varhol <ines.varhol@telecom-paris.fr>
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  *
@@ -28,6 +28,7 @@
 #include "sysemu/sysemu.h"
 #include "hw/or-irq.h"
 #include "hw/arm/stm32l4x5_soc.h"
+#include "hw/char/stm32l4x5_usart.h"
 #include "hw/gpio/stm32l4x5_gpio.h"
 #include "hw/qdev-clock.h"
 #include "hw/misc/unimp.h"
@@ -80,6 +81,10 @@ static const int exti_irq[NUM_EXTI_IRQ] = {
 #define RCC_BASE_ADDRESS 0x40021000
 #define RCC_IRQ 5
 
+#define EXTI_USART1_IRQ 26
+#define EXTI_UART4_IRQ 29
+#define EXTI_LPUART1_IRQ 31
+
 static const int exti_or_gates_out[NUM_EXTI_OR_GATES] = {
     23, 40, 63, 1,
 };
@@ -116,6 +121,18 @@ static const struct {
     { 0x48001C00, 0x0000000F, 0x00000000, 0x00000000 },
 };
 
+static const hwaddr usart_addr[] = {
+    0x40013800, /* "USART1", 0x400 */
+    0x40004400, /* "USART2", 0x400 */
+    0x40004800, /* "USART3", 0x400 */
+};
+static const hwaddr uart_addr[] = {
+    0x40004C00, /* "UART4" , 0x400 */
+    0x40005000  /* "UART5" , 0x400 */
+};
+
+#define LPUART_BASE_ADDRESS 0x40008000
+
 static void stm32l4x5_soc_initfn(Object *obj)
 {
     Stm32l4x5SocState *s = STM32L4X5_SOC(obj);
@@ -132,6 +149,18 @@ static void stm32l4x5_soc_initfn(Object *obj)
         g_autofree char *name = g_strdup_printf("gpio%c", 'a' + i);
         object_initialize_child(obj, name, &s->gpio[i], TYPE_STM32L4X5_GPIO);
     }
+
+    for (int i = 0; i < STM_NUM_USARTS; i++) {
+        object_initialize_child(obj, "usart[*]", &s->usart[i],
+                                TYPE_STM32L4X5_USART);
+    }
+
+    for (int i = 0; i < STM_NUM_UARTS; i++) {
+        object_initialize_child(obj, "uart[*]", &s->uart[i],
+                                TYPE_STM32L4X5_UART);
+    }
+    object_initialize_child(obj, "lpuart1", &s->lpuart,
+                            TYPE_STM32L4X5_LPUART);
 }
 
 static void stm32l4x5_soc_realize(DeviceState *dev_soc, Error **errp)
@@ -207,6 +236,8 @@ static void stm32l4x5_soc_realize(DeviceState *dev_soc, Error **errp)
 
     /* System configuration controller */
     busdev = SYS_BUS_DEVICE(&s->syscfg);
+    qdev_connect_clock_in(DEVICE(&s->syscfg), "clk",
+        qdev_get_clock_out(DEVICE(&(s->rcc)), "syscfg-out"));
     if (!sysbus_realize(busdev, errp)) {
         return;
     }
@@ -220,6 +251,8 @@ static void stm32l4x5_soc_realize(DeviceState *dev_soc, Error **errp)
                                   pin_index));
         }
     }
+
+    qdev_pass_gpios(DEVICE(&s->syscfg), dev_soc, NULL);
 
     /* EXTI device */
     busdev = SYS_BUS_DEVICE(&s->exti);
@@ -266,6 +299,7 @@ static void stm32l4x5_soc_realize(DeviceState *dev_soc, Error **errp)
         }
     }
 
+    /* Connect SYSCFG to EXTI */
     for (unsigned i = 0; i < GPIO_NUM_PINS; i++) {
         qdev_connect_gpio_out(DEVICE(&s->syscfg), i,
                               qdev_get_gpio_in(DEVICE(&s->exti), i));
@@ -278,6 +312,51 @@ static void stm32l4x5_soc_realize(DeviceState *dev_soc, Error **errp)
     }
     sysbus_mmio_map(busdev, 0, RCC_BASE_ADDRESS);
     sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(armv7m, RCC_IRQ));
+
+    /* USART devices */
+    for (int i = 0; i < STM_NUM_USARTS; i++) {
+        g_autofree char *name = g_strdup_printf("usart%d-out", i + 1);
+        dev = DEVICE(&(s->usart[i]));
+        qdev_prop_set_chr(dev, "chardev", serial_hd(i));
+        qdev_connect_clock_in(dev, "clk",
+            qdev_get_clock_out(DEVICE(&(s->rcc)), name));
+        busdev = SYS_BUS_DEVICE(dev);
+        if (!sysbus_realize(busdev, errp)) {
+            return;
+        }
+        sysbus_mmio_map(busdev, 0, usart_addr[i]);
+        sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(DEVICE(&s->exti),
+                                                       EXTI_USART1_IRQ + i));
+    }
+
+    /* UART devices */
+    for (int i = 0; i < STM_NUM_UARTS; i++) {
+        g_autofree char *name = g_strdup_printf("uart%d-out", STM_NUM_USARTS + i + 1);
+        dev = DEVICE(&(s->uart[i]));
+        qdev_prop_set_chr(dev, "chardev", serial_hd(STM_NUM_USARTS + i));
+        qdev_connect_clock_in(dev, "clk",
+            qdev_get_clock_out(DEVICE(&(s->rcc)), name));
+        busdev = SYS_BUS_DEVICE(dev);
+        if (!sysbus_realize(busdev, errp)) {
+            return;
+        }
+        sysbus_mmio_map(busdev, 0, uart_addr[i]);
+        sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(DEVICE(&s->exti),
+                                                       EXTI_UART4_IRQ + i));
+    }
+
+    /* LPUART device*/
+    dev = DEVICE(&(s->lpuart));
+    qdev_prop_set_chr(dev, "chardev", serial_hd(STM_NUM_USARTS + STM_NUM_UARTS));
+    qdev_connect_clock_in(dev, "clk",
+        qdev_get_clock_out(DEVICE(&(s->rcc)), "lpuart1-out"));
+    busdev = SYS_BUS_DEVICE(dev);
+    if (!sysbus_realize(busdev, errp)) {
+        return;
+    }
+    sysbus_mmio_map(busdev, 0, LPUART_BASE_ADDRESS);
+    sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(DEVICE(&s->exti),
+                                                   EXTI_LPUART1_IRQ));
 
     /* APB1 BUS */
     create_unimplemented_device("TIM2",      0x40000000, 0x400);
@@ -294,10 +373,6 @@ static void stm32l4x5_soc_realize(DeviceState *dev_soc, Error **errp)
     create_unimplemented_device("SPI2",      0x40003800, 0x400);
     create_unimplemented_device("SPI3",      0x40003C00, 0x400);
     /* RESERVED:    0x40004000, 0x400 */
-    create_unimplemented_device("USART2",    0x40004400, 0x400);
-    create_unimplemented_device("USART3",    0x40004800, 0x400);
-    create_unimplemented_device("UART4",     0x40004C00, 0x400);
-    create_unimplemented_device("UART5",     0x40005000, 0x400);
     create_unimplemented_device("I2C1",      0x40005400, 0x400);
     create_unimplemented_device("I2C2",      0x40005800, 0x400);
     create_unimplemented_device("I2C3",      0x40005C00, 0x400);
@@ -308,7 +383,6 @@ static void stm32l4x5_soc_realize(DeviceState *dev_soc, Error **errp)
     create_unimplemented_device("DAC1",      0x40007400, 0x400);
     create_unimplemented_device("OPAMP",     0x40007800, 0x400);
     create_unimplemented_device("LPTIM1",    0x40007C00, 0x400);
-    create_unimplemented_device("LPUART1",   0x40008000, 0x400);
     /* RESERVED:    0x40008400, 0x400 */
     create_unimplemented_device("SWPMI1",    0x40008800, 0x400);
     /* RESERVED:    0x40008C00, 0x800 */
@@ -325,7 +399,6 @@ static void stm32l4x5_soc_realize(DeviceState *dev_soc, Error **errp)
     create_unimplemented_device("TIM1",      0x40012C00, 0x400);
     create_unimplemented_device("SPI1",      0x40013000, 0x400);
     create_unimplemented_device("TIM8",      0x40013400, 0x400);
-    create_unimplemented_device("USART1",    0x40013800, 0x400);
     /* RESERVED:    0x40013C00, 0x400 */
     create_unimplemented_device("TIM15",     0x40014000, 0x400);
     create_unimplemented_device("TIM16",     0x40014400, 0x400);

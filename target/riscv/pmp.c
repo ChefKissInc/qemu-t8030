@@ -25,6 +25,7 @@
 #include "cpu.h"
 #include "trace.h"
 #include "exec/exec-all.h"
+#include "exec/page-protection.h"
 
 static bool pmp_write_cfg(CPURISCVState *env, uint32_t addr_index,
                           uint8_t val);
@@ -325,7 +326,7 @@ bool pmp_hart_has_privs(CPURISCVState *env, hwaddr addr,
              */
             pmp_size = -(addr | TARGET_PAGE_MASK);
         } else {
-            pmp_size = sizeof(target_ulong);
+            pmp_size = 2 << riscv_cpu_mxl(env);
         }
     } else {
         pmp_size = size;
@@ -595,6 +596,11 @@ void mseccfg_csr_write(CPURISCVState *env, target_ulong val)
         }
     } else {
         val &= ~(MSECCFG_MMWP | MSECCFG_MML | MSECCFG_RLB);
+    }
+
+    /* M-mode forward cfi to be enabled if cfi extension is implemented */
+    if (env_archcpu(env)->cfg.ext_zicfilp) {
+        val |= (val & MSECCFG_MLPE);
     }
 
     env->mseccfg = val;

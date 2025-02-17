@@ -2,10 +2,12 @@
 #define PPC_PNV_CHIP_H
 
 #include "hw/pci-host/pnv_phb4.h"
+#include "hw/ppc/pnv_adu.h"
 #include "hw/ppc/pnv_chiptod.h"
 #include "hw/ppc/pnv_core.h"
 #include "hw/ppc/pnv_homer.h"
 #include "hw/ppc/pnv_n1_chiplet.h"
+#include "hw/ssi/pnv_spi.h"
 #include "hw/ppc/pnv_lpc.h"
 #include "hw/ppc/pnv_occ.h"
 #include "hw/ppc/pnv_psi.h"
@@ -26,6 +28,8 @@ struct PnvChip {
     uint64_t     ram_start;
     uint64_t     ram_size;
 
+    bool         big_core;
+    bool         lpar_per_core;
     uint32_t     nr_cores;
     uint32_t     nr_threads;
     uint64_t     cores_mask;
@@ -77,6 +81,7 @@ struct Pnv9Chip {
     PnvChip      parent_obj;
 
     /*< public >*/
+    PnvADU       adu;
     PnvXive      xive;
     Pnv9Psi      psi;
     PnvLpcController lpc;
@@ -110,6 +115,7 @@ struct Pnv10Chip {
     PnvChip      parent_obj;
 
     /*< public >*/
+    PnvADU       adu;
     PnvXive2     xive;
     Pnv9Psi      psi;
     PnvLpcController lpc;
@@ -118,6 +124,8 @@ struct Pnv10Chip {
     PnvSBE       sbe;
     PnvHomer     homer;
     PnvN1Chiplet     n1_chiplet;
+#define PNV10_CHIP_MAX_PIB_SPIC 6
+    PnvSpi pib_spic[PNV10_CHIP_MAX_PIB_SPIC];
 
     uint32_t     nr_quads;
     PnvQuad      *quads;
@@ -131,6 +139,7 @@ struct Pnv10Chip {
 
 #define PNV10_PIR2FUSEDCORE(pir) (((pir) >> 3) & 0xf)
 #define PNV10_PIR2CHIP(pir)      (((pir) >> 8) & 0x7f)
+#define PNV10_PIR2THREAD(pir)    (((pir) & 0x7f))
 
 struct PnvChipClass {
     /*< private >*/
@@ -147,14 +156,16 @@ struct PnvChipClass {
 
     DeviceRealize parent_realize;
 
-    uint32_t (*chip_pir)(PnvChip *chip, uint32_t core_id, uint32_t thread_id);
+    /* Get PIR and TIR values for a CPU thread identified by core/thread id */
+    void (*get_pir_tir)(PnvChip *chip, uint32_t core_id, uint32_t thread_id,
+                         uint32_t *pir, uint32_t *tir);
     void (*intc_create)(PnvChip *chip, PowerPCCPU *cpu, Error **errp);
     void (*intc_reset)(PnvChip *chip, PowerPCCPU *cpu);
     void (*intc_destroy)(PnvChip *chip, PowerPCCPU *cpu);
-    void (*intc_print_info)(PnvChip *chip, PowerPCCPU *cpu, Monitor *mon);
+    void (*intc_print_info)(PnvChip *chip, PowerPCCPU *cpu, GString *buf);
     ISABus *(*isa_create)(PnvChip *chip, Error **errp);
     void (*dt_populate)(PnvChip *chip, void *fdt);
-    void (*pic_print_info)(PnvChip *chip, Monitor *mon);
+    void (*pic_print_info)(PnvChip *chip, GString *buf);
     uint64_t (*xscom_core_base)(PnvChip *chip, uint32_t core_id);
     uint32_t (*xscom_pcba)(PnvChip *chip, uint64_t addr);
 };

@@ -1,5 +1,5 @@
 /*
- *  Copyright(c) 2019-2021 Qualcomm Innovation Center, Inc. All Rights Reserved.
+ *  Copyright(c) 2019-2024 Qualcomm Innovation Center, Inc. All Rights Reserved.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -36,6 +36,14 @@ int hexagon_gdb_read_register(CPUState *cs, GByteArray *mem_buf, int n)
         return gdb_get_regl(mem_buf, env->gpr[n]);
     }
 
+    n -= TOTAL_PER_THREAD_REGS;
+
+    if (n < NUM_PREGS) {
+        return gdb_get_reg8(mem_buf, env->pred[n]);
+    }
+
+    n -= NUM_PREGS;
+
     g_assert_not_reached();
 }
 
@@ -44,7 +52,7 @@ int hexagon_gdb_write_register(CPUState *cs, uint8_t *mem_buf, int n)
     CPUHexagonState *env = cpu_env(cs);
 
     if (n == HEX_REG_P3_0_ALIASED) {
-        uint32_t p3_0 = ldtul_p(mem_buf);
+        uint32_t p3_0 = ldl_le_p(mem_buf);
         for (int i = 0; i < NUM_PREGS; i++) {
             env->pred[i] = extract32(p3_0, i * 8, 8);
         }
@@ -52,9 +60,18 @@ int hexagon_gdb_write_register(CPUState *cs, uint8_t *mem_buf, int n)
     }
 
     if (n < TOTAL_PER_THREAD_REGS) {
-        env->gpr[n] = ldtul_p(mem_buf);
+        env->gpr[n] = ldl_le_p(mem_buf);
         return sizeof(target_ulong);
     }
+
+    n -= TOTAL_PER_THREAD_REGS;
+
+    if (n < NUM_PREGS) {
+        env->pred[n] = ldl_le_p(mem_buf) & 0xff;
+        return sizeof(uint8_t);
+    }
+
+    n -= NUM_PREGS;
 
     g_assert_not_reached();
 }
@@ -100,7 +117,7 @@ static int gdb_put_vreg(CPUHexagonState *env, uint8_t *mem_buf, int n)
 {
     int i;
     for (i = 0; i < ARRAY_SIZE(env->VRegs[n].uw); i++) {
-        env->VRegs[n].uw[i] = ldtul_p(mem_buf);
+        env->VRegs[n].uw[i] = ldl_le_p(mem_buf);
         mem_buf += 4;
     }
     return MAX_VEC_SIZE_BYTES;
@@ -110,7 +127,7 @@ static int gdb_put_qreg(CPUHexagonState *env, uint8_t *mem_buf, int n)
 {
     int i;
     for (i = 0; i < ARRAY_SIZE(env->QRegs[n].uw); i++) {
-        env->QRegs[n].uw[i] = ldtul_p(mem_buf);
+        env->QRegs[n].uw[i] = ldl_le_p(mem_buf);
         mem_buf += 4;
     }
     return MAX_VEC_SIZE_BYTES / 8;

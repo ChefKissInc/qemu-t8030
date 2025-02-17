@@ -328,8 +328,14 @@ class QEMUMachine:
         """Returns the list of arguments given to the QEMU binary."""
         return self._args
 
+    @property
+    def binary(self) -> str:
+        """Returns path to the QEMU binary"""
+        return self._binary
+
     def _pre_launch(self) -> None:
         if self._qmp_set:
+            sock = None
             if self._monitor_address is None:
                 self._sock_pair = socket.socketpair()
                 os.set_inheritable(self._sock_pair[0].fileno(), True)

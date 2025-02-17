@@ -26,7 +26,7 @@
 #include "qemu/units.h"
 #include "sysemu/reset.h"
 #include "qapi/error.h"
-#include "hw/core/cpu.h"
+#include "exec/tswap.h"
 #include "hw/display/vga.h"
 #include "hw/i386/x86.h"
 #include "hw/pci/pci.h"
@@ -1487,7 +1487,7 @@ static void vga_draw_graphic(VGACommonState *s, int full_update)
     uint8_t *d;
     uint32_t v, addr1, addr;
     vga_draw_line_func *vga_draw_line = NULL;
-    bool share_surface, force_shadow = false;
+    bool allocate_surface, force_shadow = false;
     pixman_format_code_t format;
 #if HOST_BIG_ENDIAN
     bool byteswap = !s->big_endian_fb;
@@ -1574,22 +1574,16 @@ static void vga_draw_graphic(VGACommonState *s, int full_update)
 
     /* Horizontal pel panning bit 3 is only used in text mode.  */
     hpel = bits <= 8 ? s->params.hpel & 7 : 0;
+    bwidth = DIV_ROUND_UP(width * bits, 8); /* scanline length */
+    if (hpel) {
+        bwidth += 4;
+    }
 
     region_start = (s->params.start_addr * 4);
-    region_end = region_start + (ram_addr_t)s->params.line_offset * height;
-    region_end += width * depth / 8; /* scanline length */
-    region_end -= s->params.line_offset;
-    if (hpel) {
-        region_end += 4;
-    }
-    if (region_end > s->vbe_size || depth == 0 || depth == 15) {
+    region_end = region_start + (ram_addr_t)s->params.line_offset * (height - 1) + bwidth;
+    if (region_end > s->vbe_size) {
         /*
-         * We land here on:
-         *  - wraps around (can happen with cirrus vbe modes)
-         *  - depth == 0 (256 color palette video mode)
-         *  - depth == 15
-         *
-         * Take the safe and slow route:
+         * On wrap around take the safe and slow route:
          *   - create a dirty bitmap snapshot for all vga memory.
          *   - force shadowing (so all vga memory access goes
          *     through vga_read_*() helpers).
@@ -1602,6 +1596,10 @@ static void vga_draw_graphic(VGACommonState *s, int full_update)
         region_end = s->vbe_size;
         force_shadow = true;
     }
+    if (s->params.line_compare < height) {
+        /* split screen mode */
+        region_start = 0;
+    }
 
     /*
      * Check whether we can share the surface with the backend
@@ -1611,10 +1609,10 @@ static void vga_draw_graphic(VGACommonState *s, int full_update)
      */
     format = qemu_default_pixman_format(depth, !byteswap);
     if (format) {
-        share_surface = dpy_gfx_check_format(s->con, format)
-            && !s->force_shadow && !force_shadow;
+        allocate_surface = !dpy_gfx_check_format(s->con, format)
+            || s->force_shadow || force_shadow;
     } else {
-        share_surface = false;
+        allocate_surface = true;
     }
 
     if (s->params.line_offset != s->last_line_offset ||
@@ -1622,7 +1620,7 @@ static void vga_draw_graphic(VGACommonState *s, int full_update)
         height != s->last_height ||
         s->last_depth != depth ||
         s->last_byteswap != byteswap ||
-        share_surface != is_buffer_shared(surface)) {
+        allocate_surface != surface_is_allocated(surface)) {
         /* display parameters changed -> need new display surface */
         s->last_scr_width = disp_width;
         s->last_scr_height = height;
@@ -1637,14 +1635,14 @@ static void vga_draw_graphic(VGACommonState *s, int full_update)
         full_update = 1;
     }
     if (surface_data(surface) != s->vram_ptr + (s->params.start_addr * 4)
-        && is_buffer_shared(surface)) {
+        && !surface_is_allocated(surface)) {
         /* base address changed (page flip) -> shared display surfaces
          * must be updated with the new base address */
         full_update = 1;
     }
 
     if (full_update) {
-        if (share_surface) {
+        if (!allocate_surface) {
             surface = qemu_create_displaysurface_from(disp_width,
                     height, format, s->params.line_offset,
                     s->vram_ptr + (s->params.start_addr * 4));
@@ -1657,7 +1655,7 @@ static void vga_draw_graphic(VGACommonState *s, int full_update)
 
     vga_draw_line = vga_draw_line_table[v];
 
-    if (!is_buffer_shared(surface) && s->cursor_invalidate) {
+    if (surface_is_allocated(surface) && s->cursor_invalidate) {
         s->cursor_invalidate(s);
     }
 
@@ -1667,20 +1665,12 @@ static void vga_draw_graphic(VGACommonState *s, int full_update)
            s->params.line_compare, sr(s, VGA_SEQ_CLOCK_MODE));
 #endif
     addr1 = (s->params.start_addr * 4);
-    bwidth = DIV_ROUND_UP(width * bits, 8);
-    if (hpel) {
-        bwidth += 4;
-    }
     y_start = -1;
     d = surface_data(surface);
     linesize = surface_stride(surface);
     y1 = 0;
 
     if (!full_update) {
-        if (s->params.line_compare < height) {
-            /* split screen mode */
-            region_start = 0;
-        }
         snap = memory_region_snapshot_and_clear_dirty(&s->vram, region_start,
                                                       region_end - region_start,
                                                       DIRTY_MEMORY_VGA);
@@ -1717,7 +1707,7 @@ static void vga_draw_graphic(VGACommonState *s, int full_update)
         if (update) {
             if (y_start < 0)
                 y_start = y;
-            if (!(is_buffer_shared(surface))) {
+            if (surface_is_allocated(surface)) {
                 uint8_t *p;
                 p = vga_draw_line(s, d, addr, width, hpel);
                 if (p) {
@@ -1772,7 +1762,7 @@ static void vga_draw_blank(VGACommonState *s, int full_update)
     if (s->last_scr_width <= 0 || s->last_scr_height <= 0)
         return;
 
-    if (is_buffer_shared(surface)) {
+    if (!surface_is_allocated(surface)) {
         /* unshare buffer, otherwise the blanking corrupts vga vram */
         surface = qemu_create_displaysurface(s->last_scr_width,
                                              s->last_scr_height);
@@ -1883,7 +1873,6 @@ void vga_common_reset(VGACommonState *s)
     s->cursor_start = 0;
     s->cursor_end = 0;
     s->cursor_offset = 0;
-    s->big_endian_fb = s->default_endian_fb;
     memset(s->invalidated_y_table, '\0', sizeof(s->invalidated_y_table));
     memset(s->last_palette, '\0', sizeof(s->last_palette));
     memset(s->last_ch_attr, '\0', sizeof(s->last_ch_attr));
@@ -2276,6 +2265,7 @@ bool vga_common_init(VGACommonState *s, Object *obj, Error **errp)
      * all target endian dependencies from this file.
      */
     s->default_endian_fb = target_words_bigendian();
+    s->big_endian_fb = s->default_endian_fb;
 
     vga_dirty_log_start(s);
 

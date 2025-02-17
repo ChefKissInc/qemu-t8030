@@ -495,7 +495,6 @@ static void via1_rtc_update(MOS6522Q800VIA1State *v1s)
                 break;
             default:
                 g_assert_not_reached();
-                break;
             }
             return;
         }
@@ -556,7 +555,6 @@ static void via1_rtc_update(MOS6522Q800VIA1State *v1s)
             break;
         default:
             g_assert_not_reached();
-            break;
         }
         return;
     }
@@ -1203,7 +1201,7 @@ static int via1_post_load(void *opaque, int version_id)
 }
 
 /* VIA 1 */
-static void mos6522_q800_via1_reset_hold(Object *obj)
+static void mos6522_q800_via1_reset_hold(Object *obj, ResetType type)
 {
     MOS6522Q800VIA1State *v1s = MOS6522_Q800_VIA1(obj);
     MOS6522State *ms = MOS6522(v1s);
@@ -1211,7 +1209,7 @@ static void mos6522_q800_via1_reset_hold(Object *obj)
     ADBBusState *adb_bus = &v1s->adb_bus;
 
     if (mdc->parent_phases.hold) {
-        mdc->parent_phases.hold(obj);
+        mdc->parent_phases.hold(obj, type);
     }
 
     ms->timers[0].frequency = VIA_TIMER_FREQ;
@@ -1359,13 +1357,13 @@ static void mos6522_q800_via2_portB_write(MOS6522State *s)
     }
 }
 
-static void mos6522_q800_via2_reset_hold(Object *obj)
+static void mos6522_q800_via2_reset_hold(Object *obj, ResetType type)
 {
     MOS6522State *ms = MOS6522(obj);
     MOS6522DeviceClass *mdc = MOS6522_GET_CLASS(ms);
 
     if (mdc->parent_phases.hold) {
-        mdc->parent_phases.hold(obj);
+        mdc->parent_phases.hold(obj, type);
     }
 
     ms->timers[0].frequency = VIA_TIMER_FREQ;

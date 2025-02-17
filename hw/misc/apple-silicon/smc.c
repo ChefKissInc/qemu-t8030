@@ -1,6 +1,6 @@
 #include "qemu/osdep.h"
 #include "hw/arm/apple-silicon/dtb.h"
-#include "hw/misc/apple-silicon/a7iop/rtbuddy.h"
+#include "hw/misc/apple-silicon/a7iop/rtkit.h"
 #include "hw/misc/apple-silicon/smc.h"
 #include "hw/qdev-core.h"
 #include "qemu/bitops.h"
@@ -79,14 +79,8 @@ enum smc_command {
 };
 
 enum smc_result {
-    kSMCBadFuncParameter = 0xc0,
-    kSMCEventBuffWrongOrder = 0xc4,
-    kSMCEventBuffReadError = 0xc5,
-    kSMCDeviceAccessError = 0xc7,
-    kSMCUnsupportedFeature = 0xcb,
-    kSMCSMBAccessError = 0xcc,
-    kSMCTimeoutError = 0xb7,
-    kSMCKeyIndexRangeError = 0xb8,
+    kSMCSuccess = 0,
+    kSMCError = 1,
     kSMCCommCollision = 0x80,
     kSMCSpuriousData = 0x81,
     kSMCBadCommand = 0x82,
@@ -97,8 +91,14 @@ enum smc_result {
     kSMCKeySizeMismatch = 0x87,
     kSMCFramingError = 0x88,
     kSMCBadArgumentError = 0x89,
-    kSMCError = 1,
-    kSMCSuccess = 0,
+    kSMCTimeoutError = 0xB7,
+    kSMCKeyIndexRangeError = 0xB8,
+    kSMCBadFuncParameter = 0xC0,
+    kSMCEventBuffWrongOrder = 0xC4,
+    kSMCEventBuffReadError = 0xC5,
+    kSMCDeviceAccessError = 0xC7,
+    kSMCUnsupportedFeature = 0xCB,
+    kSMCSMBAccessError = 0xCC,
 };
 
 enum smc_notify_type {
@@ -166,14 +166,14 @@ struct smc_key {
 
 struct AppleSMCClass {
     /*< private >*/
-    AppleRTBuddyClass base_class;
+    AppleRTKitClass base_class;
 
     /*< public >*/
     DeviceRealize parent_realize;
 };
 
 struct AppleSMCState {
-    AppleRTBuddy parent_obj;
+    AppleRTKit parent_obj;
 
     MemoryRegion *iomems[3];
     QTAILQ_HEAD(, smc_key) keys;
@@ -284,10 +284,10 @@ static uint8_t smc_key_count_read(AppleSMCState *s, smc_key *k, void *payload,
 static uint8_t smc_key_mbse_write(AppleSMCState *s, smc_key *k, void *payload,
                                   uint8_t length)
 {
-    AppleRTBuddy *rtb;
+    AppleRTKit *rtk;
     uint32_t value;
 
-    rtb = APPLE_RTBUDDY(s);
+    rtk = APPLE_RTKIT(s);
     if (!payload || length != k->info.size) {
         return kSMCBadArgumentError;
     }
@@ -310,7 +310,7 @@ static uint8_t smc_key_mbse_write(AppleSMCState *s, smc_key *k, void *payload,
         r.status = SMC_NOTIFICATION;
         r.response[2] = kSMCNotifySMCPanicProgress;
         r.response[3] = kSMCSystemStateNotify;
-        apple_rtbuddy_send_user_msg(rtb, kSMCKeyEndpoint, r.raw);
+        apple_rtkit_send_user_msg(rtk, kSMCKeyEndpoint, r.raw);
         return kSMCSuccess;
     }
     case SMC_MAKE_IDENTIFIER('p', 'a', 'n', 'e'): {
@@ -318,7 +318,7 @@ static uint8_t smc_key_mbse_write(AppleSMCState *s, smc_key *k, void *payload,
         r.status = SMC_NOTIFICATION;
         r.response[2] = kSMCNotifySMCPanicDone;
         r.response[3] = kSMCSystemStateNotify;
-        apple_rtbuddy_send_user_msg(rtb, kSMCKeyEndpoint, r.raw);
+        apple_rtkit_send_user_msg(rtk, kSMCKeyEndpoint, r.raw);
         return kSMCSuccess;
     }
     default:
@@ -345,8 +345,8 @@ static uint8_t smc_key_lgpe_write(AppleSMCState *s, smc_key *k, void *payload,
 static uint8_t smc_key_nesn_write(AppleSMCState *s, smc_key *k, void *payload,
                                   uint8_t length)
 {
-    key_response r = { 0 };
 #if 0
+    key_response r = { 0 };
     uint8_t *p = (uint8_t *)payload;
     fprintf(stderr, "NESN: payload: 0x%x\n", *(uint32_t *)payload);
 #endif
@@ -357,17 +357,17 @@ static uint8_t smc_key_nesn_write(AppleSMCState *s, smc_key *k, void *payload,
 static void apple_smc_handle_key_endpoint(void *opaque, uint32_t ep,
                                           uint64_t msg)
 {
-    AppleRTBuddy *rtb;
+    AppleRTKit *rtk;
     AppleSMCState *s;
     struct key_message *kmsg;
 
     s = APPLE_SMC_IOP(opaque);
-    rtb = APPLE_RTBUDDY(opaque);
+    rtk = APPLE_RTKIT(opaque);
     kmsg = (struct key_message *)&msg;
     SMC_LOG_MSG(ep, msg);
     switch (kmsg->cmd) {
     case SMC_GET_SRAM_ADDR: {
-        apple_rtbuddy_send_user_msg(rtb, ep, s->sram_addr);
+        apple_rtkit_send_user_msg(rtk, ep, s->sram_addr);
         break;
     }
     case SMC_READ_KEY:
@@ -391,7 +391,7 @@ static void apple_smc_handle_key_endpoint(void *opaque, uint32_t ep,
             }
         }
         r.ui8TagAndId = kmsg->ui8TagAndId;
-        apple_rtbuddy_send_user_msg(rtb, ep, r.raw);
+        apple_rtkit_send_user_msg(rtk, ep, r.raw);
         break;
     }
     case SMC_WRITE_KEY: {
@@ -405,7 +405,7 @@ static void apple_smc_handle_key_endpoint(void *opaque, uint32_t ep,
         }
         r.ui8TagAndId = kmsg->ui8TagAndId;
         r.length = kmsg->length;
-        apple_rtbuddy_send_user_msg(rtb, ep, r.raw);
+        apple_rtkit_send_user_msg(rtk, ep, r.raw);
         break;
     }
     case SMC_GET_KEY_BY_INDEX: {
@@ -425,7 +425,7 @@ static void apple_smc_handle_key_endpoint(void *opaque, uint32_t ep,
             bswap32s((uint32_t *)r.response);
         }
         r.ui8TagAndId = kmsg->ui8TagAndId;
-        apple_rtbuddy_send_user_msg(rtb, ep, r.raw);
+        apple_rtkit_send_user_msg(rtk, ep, r.raw);
         break;
     }
     case SMC_GET_KEY_INFO: {
@@ -438,14 +438,14 @@ static void apple_smc_handle_key_endpoint(void *opaque, uint32_t ep,
             r.status = kSMCSuccess;
         }
         r.ui8TagAndId = kmsg->ui8TagAndId;
-        apple_rtbuddy_send_user_msg(rtb, ep, r.raw);
+        apple_rtkit_send_user_msg(rtk, ep, r.raw);
         break;
     }
     default: {
         key_response r = { 0 };
         r.status = kSMCBadCommand;
         r.ui8TagAndId = kmsg->ui8TagAndId;
-        apple_rtbuddy_send_user_msg(rtb, ep, r.raw);
+        apple_rtkit_send_user_msg(rtk, ep, r.raw);
         fprintf(stderr, "SMC: Unknown SMC Command: 0x%02x\n", kmsg->cmd);
         break;
     }
@@ -485,50 +485,47 @@ SysBusDevice *apple_smc_create(DTBNode *node, AppleA7IOPVersion version,
 {
     DeviceState *dev;
     AppleSMCState *s;
-    AppleRTBuddy *rtb;
+    AppleRTKit *rtk;
     SysBusDevice *sbd;
     DTBNode *child;
     DTBProp *prop;
     uint64_t *reg;
-    uint32_t data;
 
     dev = qdev_new(TYPE_APPLE_SMC_IOP);
     s = APPLE_SMC_IOP(dev);
-    rtb = APPLE_RTBUDDY(dev);
+    rtk = APPLE_RTKIT(dev);
     sbd = SYS_BUS_DEVICE(dev);
 
-    child = find_dtb_node(node, "iop-smc-nub");
+    child = dtb_get_node(node, "iop-smc-nub");
     g_assert_nonnull(child);
 
-    prop = find_dtb_prop(node, "reg");
+    prop = dtb_find_prop(node, "reg");
     g_assert_nonnull(prop);
 
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
 
-    apple_rtbuddy_init(rtb, NULL, "SMC", reg[1], version, protocol_version,
-                       NULL);
-    apple_rtbuddy_register_user_ep(rtb, kSMCKeyEndpoint, s,
-                                   &apple_smc_handle_key_endpoint);
+    apple_rtkit_init(rtk, NULL, "SMC", reg[1], version, protocol_version, NULL);
+    apple_rtkit_register_user_ep(rtk, kSMCKeyEndpoint, s,
+                                 &apple_smc_handle_key_endpoint);
 
     s->iomems[1] = g_new(MemoryRegion, 1);
     memory_region_init_io(s->iomems[1], OBJECT(dev), &ascv2_core_reg_ops, s,
                           TYPE_APPLE_SMC_IOP ".ascv2-core-reg", reg[3]);
     sysbus_init_mmio(sbd, s->iomems[1]);
 
-    prop = find_dtb_prop(child, "sram-addr");
+    prop = dtb_find_prop(child, "sram-addr");
     g_assert_nonnull(prop);
     g_assert_cmpuint(prop->length, ==, 8);
 
-    s->sram_addr = *(uint64_t *)prop->value;
+    s->sram_addr = *(uint64_t *)prop->data;
     s->iomems[2] = g_new(MemoryRegion, 1);
     memory_region_init_ram_device_ptr(s->iomems[2], OBJECT(dev),
                                       TYPE_APPLE_SMC_IOP ".sram",
                                       sizeof(s->sram), s->sram);
     sysbus_init_mmio(sbd, s->iomems[2]);
 
-    data = 1;
-    set_dtb_prop(child, "pre-loaded", 4, (uint8_t *)&data);
-    set_dtb_prop(child, "running", 4, (uint8_t *)&data);
+    dtb_set_prop_u32(child, "pre-loaded", 1);
+    dtb_set_prop_u32(child, "running", 1);
 
     QTAILQ_INIT(&s->keys);
 
@@ -565,14 +562,10 @@ static void apple_smc_realize(DeviceState *dev, Error **errp)
     smc_create_key_func(s, SmcKeyMBSE, 4, SmcKeyTypeHex, SMC_ATTR_LITTLE_ENDIAN,
                         &smc_key_reject_read, &smc_key_mbse_write);
 
-#if 0
     smc_create_key_func(s, SmcKeyLGPB, 1, SmcKeyTypeFlag,
-                        SMC_ATTR_LITTLE_ENDIAN,
-                        NULL, &smc_key_lgpb_write);
+                        SMC_ATTR_LITTLE_ENDIAN, NULL, &smc_key_lgpb_write);
     smc_create_key_func(s, SmcKeyLGPE, 1, SmcKeyTypeFlag,
-                        SMC_ATTR_LITTLE_ENDIAN,
-                        NULL, &smc_key_lgpe_write);
-#endif
+                        SMC_ATTR_LITTLE_ENDIAN, NULL, &smc_key_lgpe_write);
     smc_create_key_func(s, SmcKeyNESN, 4, SmcKeyTypeHex, SMC_ATTR_LITTLE_ENDIAN,
                         &smc_key_reject_read, &smc_key_nesn_write);
 
@@ -631,14 +624,14 @@ static void apple_smc_class_init(ObjectClass *klass, void *data)
     sc = APPLE_SMC_IOP_CLASS(klass);
 
     device_class_set_parent_realize(dc, apple_smc_realize, &sc->parent_realize);
-    /* dc->reset = apple_smc_reset; */
+    /* device_class_set_legacy_reset(dc, apple_smc_reset); */
     dc->desc = "Apple SMC IOP";
     set_bit(DEVICE_CATEGORY_MISC, dc->categories);
 }
 
 static const TypeInfo apple_smc_info = {
     .name = TYPE_APPLE_SMC_IOP,
-    .parent = TYPE_APPLE_RTBUDDY,
+    .parent = TYPE_APPLE_RTKIT,
     .instance_size = sizeof(AppleSMCState),
     .class_size = sizeof(AppleSMCClass),
     .class_init = apple_smc_class_init,

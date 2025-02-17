@@ -31,7 +31,7 @@ static void qxl_blit(PCIQXLDevice *qxl, QXLRect *rect)
     uint8_t *src;
     int len, i;
 
-    if (is_buffer_shared(surface)) {
+    if (!surface_is_allocated(surface)) {
         return;
     }
     trace_qxl_render_blit(qxl->guest_primary.qxl_stride,
@@ -305,10 +305,6 @@ int qxl_render_cursor(PCIQXLDevice *qxl, QXLCommandExt *ext)
 
     if (!cmd) {
         return 1;
-    }
-
-    if (!dpy_cursor_define_supported(qxl->vga.con)) {
-        return 0;
     }
 
     if (qxl->debug > 1 && cmd->type != QXL_CURSOR_MOVE) {

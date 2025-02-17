@@ -171,9 +171,9 @@ typedef enum {
 
 #define TCG_TARGET_HAS_tst              0
 
-#define TCG_TARGET_HAS_v64              0
+#define TCG_TARGET_HAS_v64              (cpuinfo & CPUINFO_LSX)
 #define TCG_TARGET_HAS_v128             (cpuinfo & CPUINFO_LSX)
-#define TCG_TARGET_HAS_v256             0
+#define TCG_TARGET_HAS_v256             (cpuinfo & CPUINFO_LASX)
 
 #define TCG_TARGET_HAS_not_vec          1
 #define TCG_TARGET_HAS_neg_vec          1
@@ -194,6 +194,7 @@ typedef enum {
 #define TCG_TARGET_HAS_minmax_vec       1
 #define TCG_TARGET_HAS_bitsel_vec       1
 #define TCG_TARGET_HAS_cmpsel_vec       0
+#define TCG_TARGET_HAS_tst_vec          0
 
 #define TCG_TARGET_DEFAULT_MO (0)
 

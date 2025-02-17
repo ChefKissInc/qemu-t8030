@@ -2,7 +2,7 @@
  * PowerPC cpu parameters for qemu.
  *
  * Copyright (c) 2007 Jocelyn Mayer
- * SPDX-License-Identifier: LGPL-2.0+
+ * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
 #ifndef PPC_CPU_PARAM_H
@@ -39,5 +39,7 @@
 #else
 # define TARGET_PAGE_BITS 12
 #endif
+
+#define TCG_GUEST_DEFAULT_MO 0
 
 #endif

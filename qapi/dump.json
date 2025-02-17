@@ -55,7 +55,7 @@
 #     allows using gdb to process the core file.
 #
 #     IMPORTANT: this option can make QEMU allocate several gigabytes
-#     of RAM. This can happen for a large guest, or a malicious guest
+#     of RAM.  This can happen for a large guest, or a malicious guest
 #     pretending to be large.
 #
 #     Also, paging=true has the following limitations:
@@ -90,11 +90,11 @@
 #     and @length is not allowed to be specified with non-elf @format
 #     at the same time (since 2.0)
 #
-# Note: All boolean arguments default to false
+# .. note:: All boolean arguments default to false.
 #
 # Since: 1.2
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "dump-guest-memory",
 #          "arguments": { "paging": false, "protocol": "fd:dump" } }
@@ -150,7 +150,7 @@
 #
 # Since: 2.6
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "query-dump" }
 #     <- { "return": { "status": "active", "completed": 1024000,
@@ -171,7 +171,7 @@
 #
 # Since: 2.6
 #
-# Example:
+# .. qmp-example::
 #
 #     <- { "event": "DUMP_COMPLETED",
 #          "data": { "result": { "total": 1090650112, "status": "completed",
@@ -202,7 +202,7 @@
 #
 # Since: 2.0
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "query-dump-guest-memory-capability" }
 #     <- { "return": { "formats":

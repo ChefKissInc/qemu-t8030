@@ -77,15 +77,13 @@ ssize_t load_image_targphys(const char *filename, hwaddr,
 ssize_t load_image_mr(const char *filename, MemoryRegion *mr);
 
 /* This is the limit on the maximum uncompressed image size that
- * load_image_gzipped_buffer() and load_image_gzipped() will read. It prevents
+ * load_image_gzipped_buffer() will read. It prevents
  * g_malloc() in those functions from allocating a huge amount of memory.
  */
 #define LOAD_IMAGE_MAX_GUNZIP_BYTES (256 << 20)
 
 ssize_t load_image_gzipped_buffer(const char *filename, uint64_t max_sz,
                                   uint8_t **buffer);
-ssize_t load_image_gzipped(const char *filename, hwaddr addr, uint64_t max_sz);
-
 /**
  * unpack_efi_zboot_image:
  * @buffer: pointer to a variable holding the address of a buffer containing the
@@ -338,7 +336,6 @@ void *rom_ptr(hwaddr addr, size_t size);
  * rom_ptr().
  */
 void *rom_ptr_for_as(AddressSpace *as, hwaddr addr, size_t size);
-void hmp_info_roms(Monitor *mon, const QDict *qdict);
 
 #define rom_add_file_fixed(_f, _a, _i)          \
     rom_add_file(_f, NULL, _a, _i, false, NULL, NULL)

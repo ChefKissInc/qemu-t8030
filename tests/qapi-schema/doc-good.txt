@@ -193,11 +193,9 @@ Features
 "cmd-feat2"
    another feature
 
+Note:
 
-Note
-~~~~
-
-"arg3" is undocumented
+  "arg3" is undocumented
 
 
 Returns
@@ -211,9 +209,7 @@ Errors
 
 some
 
-
-Notes
-~~~~~
+Notes:
 
 * Lorem ipsum dolor sit amet
 
@@ -221,19 +217,21 @@ Notes
 
 Duis aute irure dolor
 
+Example: Ideal fast-food burger situation:
 
-Example
-~~~~~~~
+   -> "in"
+   <- "out"
 
-   -> in
-   <- out
+Examples:
 
-
-Examples
-~~~~~~~~
-
+   - Not a QMP code block
+   - Merely a preformatted code block literal
+   It isn't even an rST list.
    - *verbatim*
    - {braces}
+
+Note::
+   Ceci n'est pas une note
 
 
 Since
@@ -262,13 +260,11 @@ Features
 "cmd-feat2"
    another feature
 
+Example::
 
-Example
-~~~~~~~
+   -> "this example"
 
-   -> in
-
-   <- out
+   <- "has no title"
 
 
 "EVT_BOXED" (Event)

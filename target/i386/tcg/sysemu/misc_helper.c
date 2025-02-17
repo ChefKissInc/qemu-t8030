@@ -63,23 +63,13 @@ target_ulong helper_inl(CPUX86State *env, uint32_t port)
                              cpu_get_mem_attrs(env), NULL);
 }
 
-target_ulong helper_read_crN(CPUX86State *env, int reg)
+target_ulong helper_read_cr8(CPUX86State *env)
 {
-    target_ulong val;
-
-    switch (reg) {
-    default:
-        val = env->cr[reg];
-        break;
-    case 8:
-        if (!(env->hflags2 & HF2_VINTR_MASK)) {
-            val = cpu_get_apic_tpr(env_archcpu(env)->apic_state);
-        } else {
-            val = env->int_ctl & V_TPR_MASK;
-        }
-        break;
+    if (!(env->hflags2 & HF2_VINTR_MASK)) {
+        return cpu_get_apic_tpr(env_archcpu(env)->apic_state);
+    } else {
+        return env->int_ctl & V_TPR_MASK;
     }
-    return val;
 }
 
 void helper_write_crN(CPUX86State *env, int reg, target_ulong t0)
@@ -516,23 +506,14 @@ void helper_flush_page(CPUX86State *env, target_ulong addr)
     tlb_flush_page(env_cpu(env), addr);
 }
 
-static G_NORETURN
-void do_hlt(CPUX86State *env)
+G_NORETURN void helper_hlt(CPUX86State *env)
 {
     CPUState *cs = env_cpu(env);
 
-    env->hflags &= ~HF_INHIBIT_IRQ_MASK; /* needed if sti is just before */
+    do_end_instruction(env);
     cs->halted = 1;
     cs->exception_index = EXCP_HLT;
     cpu_loop_exit(cs);
-}
-
-G_NORETURN void helper_hlt(CPUX86State *env, int next_eip_addend)
-{
-    cpu_svm_check_intercept_param(env, SVM_EXIT_HLT, 0, GETPC());
-    env->eip += next_eip_addend;
-
-    do_hlt(env);
 }
 
 void helper_monitor(CPUX86State *env, target_ulong ptr)
@@ -556,8 +537,8 @@ G_NORETURN void helper_mwait(CPUX86State *env, int next_eip_addend)
 
     /* XXX: not complete but not completely erroneous */
     if (cs->cpu_index != 0 || CPU_NEXT(cs) != NULL) {
-        do_pause(env);
+        helper_pause(env);
     } else {
-        do_hlt(env);
+        helper_hlt(env);
     }
 }

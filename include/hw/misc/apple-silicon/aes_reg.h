@@ -176,7 +176,6 @@ typedef enum {
 #define COMMAND_OPCODE(_x) \
     (((_x) >> COMMAND_OPCODE_SHIFT) & COMMAND_OPCODE_MASK)
 
-typedef struct command_key {
 #define COMMAND_KEY_COMMAND_KEY_CONTEXT(_x) ((_x >> 27) & 0x1)
 
 #define COMMAND_KEY_COMMAND_KEY_SELECT_SHIFT (24)
@@ -206,11 +205,12 @@ typedef struct command_key {
 #define COMMAND_KEY_COMMAND_COMMAND_ID_SHIFT (0)
 #define COMMAND_KEY_COMMAND_COMMAND_ID_MASK (0xFF)
 #define COMMAND_KEY_COMMAND_COMMAND_ID(_x) (((_x) >> 0) & 0xFF)
+
+typedef struct command_key {
     uint32_t command;
     uint32_t key[8];
 } command_key_t;
 
-typedef struct aes_command_iv {
 #define COMMAND_IV_COMMAND_IV_CONTEXT_SHIFT (26)
 #define COMMAND_IV_COMMAND_IV_CONTEXT_MASK (0x3)
 #define COMMAND_IV_COMMAND_IV_CONTEXT(_x) (((_x) >> 26) & 0x3)
@@ -220,11 +220,18 @@ typedef struct aes_command_iv {
 
 #define COMMAND_IV_COMMAND_IV_IN_HDCP_SHIFT (23)
 #define COMMAND_IV_COMMAND_IV_IN_HDCP_MASK (0x3)
+
+typedef struct aes_command_iv {
     uint32_t command;
     uint32_t iv[4];
 } command_iv_t;
 
-typedef struct aes_command_data {
+typedef struct aes_command_dsb {
+    uint32_t command;
+    uint32_t r1_in[4];
+    uint32_t r2_in[4];
+} command_dsb_t;
+
 #define COMMAND_DATA_COMMAND_KEY_CONTEXT_SHIFT (27)
 #define COMMAND_DATA_COMMAND_KEY_CONTEXT_MASK (0x1)
 #define COMMAND_DATA_COMMAND_KEY_CONTEXT(_x) (((_x) >> 27) & 0x1)
@@ -236,7 +243,6 @@ typedef struct aes_command_data {
 #define COMMAND_DATA_COMMAND_LENGTH_SHIFT (0)
 #define COMMAND_DATA_COMMAND_LENGTH_MASK (0xFFFFFF)
 #define COMMAND_DATA_COMMAND_LENGTH(_x) (((_x) >> 0) & 0xFFFFFF)
-    uint32_t command;
 #define COMMAND_DATA_UPPER_ADDR_SOURCE_SHIFT (16)
 #define COMMAND_DATA_UPPER_ADDR_SOURCE_MASK (0xFF)
 #define COMMAND_DATA_UPPER_ADDR_SOURCE(_x) (((_x) >> 16) & 0xFF)
@@ -244,12 +250,14 @@ typedef struct aes_command_data {
 #define COMMAND_DATA_UPPER_ADDR_DEST_SHIFT (0)
 #define COMMAND_DATA_UPPER_ADDR_DEST_MASK (0xFF)
 #define COMMAND_DATA_UPPER_ADDR_DEST(_x) (((_x) >> 0) & 0xFF)
+
+typedef struct aes_command_data {
+    uint32_t command;
     uint32_t upper_addr;
     uint32_t source_addr;
     uint32_t dest_addr;
 } command_data_t;
 
-typedef struct aes_command_store_iv {
 #define COMMAND_STORE_IV_COMMAND_CONTEXT_SHIFT (26)
 #define COMMAND_STORE_IV_COMMAND_CONTEXT_MASK (0x3)
 #define COMMAND_STORE_IV_COMMAND_CONTEXT(_x) (((_x) >> 26) & 0x3)
@@ -257,6 +265,8 @@ typedef struct aes_command_store_iv {
 #define COMMAND_STORE_IV_COMMAND_UPPER_ADDR_DEST_SHIFT (0)
 #define COMMAND_STORE_IV_COMMAND_UPPER_ADDR_DEST_MASK (0xFF)
 #define COMMAND_STORE_IV_COMMAND_UPPER_ADDR_DEST(_x) (((_x) >> 0) & 0xFF)
+
+typedef struct aes_command_store_iv {
     uint32_t command;
     uint32_t dest_addr;
 } command_store_iv_t;
@@ -441,8 +451,9 @@ typedef union {
     };
 } aes_blk_skg_key_t;
 
-typedef union {
 #define AES_BLK_REG_SIZE (0x204)
+
+typedef union {
     uint32_t raw[AES_BLK_REG_SIZE / sizeof(uint32_t)];
     struct {
         aes_blk_version_t version;

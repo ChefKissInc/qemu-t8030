@@ -1,8 +1,8 @@
 /*
  * Apple t8030 SoC.
  *
- * Copyright (c) 2023-2024 Visual Ehrmanntraut (VisualEhrmanntraut).
- * Copyright (c) 2023 Christian Inci (chris-pcguy).
+ * Copyright (c) 2023-2025 Visual Ehrmanntraut (VisualEhrmanntraut).
+ * Copyright (c) 2023-2025 Christian Inci (chris-pcguy).
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -67,7 +67,7 @@ typedef struct {
     char *seprom_filename;
     char *sep_fw_filename;
     BootMode boot_mode;
-    uint32_t rtbuddy_protocol_ver;
+    uint32_t rtkit_protocol_ver;
     uint32_t build_version;
     uint64_t ecid;
     Notifier init_done_notifier;
@@ -78,6 +78,7 @@ typedef struct {
     uint8_t amcc_reg[0x100000];
     bool kaslr_off;
     bool force_dfu;
+    uint32_t board_id;
 } T8030MachineState;
 
 #endif /* HW_ARM_APPLE_SILICON_T8030_H */

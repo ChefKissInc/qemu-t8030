@@ -1,7 +1,6 @@
 module ./builtin
 object q_empty
 enum QType
-    prefix QTYPE
     member none
     member qnull
     member qnum
@@ -117,8 +116,8 @@ doc symbol=Base
     body=
 
     arg=base1
-description starts on a new line,
-minimally indented
+ description starts on a new line,
+ minimally indented
 doc symbol=Variant1
     body=
 A paragraph
@@ -145,8 +144,8 @@ doc symbol=Alternate
 
     arg=i
 description starts on the same line
-remainder indented the same
-@b is undocumented
+    remainder indented the same
+    @b is undocumented
     arg=b
 
     feature=alt-feat
@@ -158,36 +157,49 @@ doc symbol=cmd
     body=
 
     arg=arg1
-description starts on a new line,
-indented
+    description starts on a new line,
+    indented
     arg=arg2
 description starts on the same line
-remainder indented differently
+    remainder indented differently
     arg=arg3
 
     feature=cmd-feat1
 a feature
     feature=cmd-feat2
 another feature
-    section=Note
-@arg3 is undocumented
+    section=None
+.. note:: @arg3 is undocumented
     section=Returns
 @Object
     section=Errors
 some
     section=TODO
 frobnicate
-    section=Notes
-- Lorem ipsum dolor sit amet
-- Ut enim ad minim veniam
+    section=None
+.. admonition:: Notes
 
-Duis aute irure dolor
-    section=Example
--> in
-<- out
-    section=Examples
-- *verbatim*
-- {braces}
+ - Lorem ipsum dolor sit amet
+ - Ut enim ad minim veniam
+
+ Duis aute irure dolor
+
+.. qmp-example::
+   :title: Ideal fast-food burger situation
+
+   -> "in"
+   <- "out"
+
+Examples::
+
+ - Not a QMP code block
+ - Merely a preformatted code block literal
+ It isn't even an rST list.
+ - *verbatim*
+ - {braces}
+
+Note::
+    Ceci n'est pas une note
     section=Since
 2.10
 doc symbol=cmd-boxed
@@ -197,10 +209,12 @@ If you're bored enough to read this, go see a video of boxed cats
 a feature
     feature=cmd-feat2
 another feature
-    section=Example
--> in
+    section=None
+.. qmp-example::
 
-<- out
+   -> "this example"
+
+   <- "has no title"
 doc symbol=EVT_BOXED
     body=
 

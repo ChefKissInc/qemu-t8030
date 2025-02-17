@@ -5,6 +5,7 @@
 #include "hw/ssi/apple_spi.h"
 #include "hw/ssi/ssi.h"
 #include "migration/vmstate.h"
+#include "qemu/error-report.h"
 #include "qemu/fifo32.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
@@ -423,6 +424,11 @@ static void apple_spi_reset(DeviceState *dev)
     fifo32_reset(&s->rx_fifo);
 }
 
+SSIBus *apple_spi_get_bus(AppleSPIState *s)
+{
+    return s->spi;
+}
+
 static void apple_spi_realize(DeviceState *dev, struct Error **errp)
 {
     AppleSPIState *s = APPLE_SPI(dev);
@@ -450,7 +456,12 @@ static void apple_spi_realize(DeviceState *dev, struct Error **errp)
     obj = object_property_get_link(OBJECT(dev), "sio", NULL);
     sio = APPLE_SIO(obj);
 
-    if (!sio) {
+    if (sio == NULL) {
+        if (s->dma_capable) {
+            warn_report("%s: SPI bus is DMA capable, but no SIO is attached. "
+                        "This is a bug.",
+                        __func__);
+        }
         s->dma_capable = false;
     } else if (s->dma_capable) {
         s->tx_chan = apple_sio_get_endpoint(sio, s->tx_chan_id);
@@ -463,15 +474,15 @@ SysBusDevice *apple_spi_create(DTBNode *node)
     DeviceState *dev = qdev_new(TYPE_APPLE_SPI);
     SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
     AppleSPIState *s = APPLE_SPI(dev);
-    DTBProp *prop = find_dtb_prop(node, "reg");
-    uint64_t mmio_size = ((hwaddr *)prop->value)[1];
+    DTBProp *prop = dtb_find_prop(node, "reg");
+    uint64_t mmio_size = ((hwaddr *)prop->data)[1];
 
-    prop = find_dtb_prop(node, "name");
-    dev->id = g_strdup((const char *)prop->value);
+    prop = dtb_find_prop(node, "name");
+    dev->id = g_strdup((const char *)prop->data);
     s->mmio_size = mmio_size;
 
-    if ((prop = find_dtb_prop(node, "dma-channels")) != NULL) {
-        uint32_t *data = (uint32_t *)prop->value;
+    if ((prop = dtb_find_prop(node, "dma-channels")) != NULL) {
+        uint32_t *data = (uint32_t *)prop->data;
         s->dma_capable = true;
         s->tx_chan_id = data[0];
         s->rx_chan_id = data[8];
@@ -506,7 +517,7 @@ static void apple_spi_class_init(ObjectClass *klass, void *data)
 
     dc->desc = "Apple Samsung SPI Controller";
 
-    dc->reset = apple_spi_reset;
+    device_class_set_legacy_reset(dc, apple_spi_reset);
     dc->realize = apple_spi_realize;
     dc->vmsd = &vmstate_apple_spi;
 }

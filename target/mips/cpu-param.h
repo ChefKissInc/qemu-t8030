@@ -1,7 +1,7 @@
 /*
  * MIPS cpu parameters for qemu.
  *
- * SPDX-License-Identifier: LGPL-2.0+
+ * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
 #ifndef MIPS_CPU_PARAM_H
@@ -29,5 +29,7 @@
 #define TARGET_PAGE_BITS_VARY
 #define TARGET_PAGE_BITS_MIN 12
 #endif
+
+#define TCG_GUEST_DEFAULT_MO (0)
 
 #endif

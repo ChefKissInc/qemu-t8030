@@ -37,6 +37,7 @@
 #include "trace.h"
 #include "exec/memory.h"
 #include "qom/object.h"
+#include "qemu/memfd.h"
 
 #include "console-priv.h"
 
@@ -49,7 +50,8 @@ typedef struct QemuGraphicConsole {
     uint32_t head;
 
     QEMUCursor *cursor;
-    int cursor_x, cursor_y, cursor_on;
+    int cursor_x, cursor_y;
+    bool cursor_on;
 } QemuGraphicConsole;
 
 typedef QemuConsoleClass QemuGraphicConsoleClass;
@@ -451,60 +453,26 @@ qemu_graphic_console_init(Object *obj)
 {
 }
 
-#ifdef WIN32
-void qemu_displaysurface_win32_set_handle(DisplaySurface *surface,
-                                          HANDLE h, uint32_t offset)
+void qemu_displaysurface_set_share_handle(DisplaySurface *surface,
+                                          qemu_pixman_shareable handle,
+                                          uint32_t offset)
 {
-    assert(!surface->handle);
+    assert(surface->share_handle == SHAREABLE_NONE);
 
-    surface->handle = h;
-    surface->handle_offset = offset;
+    surface->share_handle = handle;
+    surface->share_handle_offset = offset;
+
 }
-
-static void
-win32_pixman_image_destroy(pixman_image_t *image, void *data)
-{
-    DisplaySurface *surface = data;
-
-    if (!surface->handle) {
-        return;
-    }
-
-    assert(surface->handle_offset == 0);
-
-    qemu_win32_map_free(
-        pixman_image_get_data(surface->image),
-        surface->handle,
-        &error_warn
-    );
-}
-#endif
 
 DisplaySurface *qemu_create_displaysurface(int width, int height)
 {
-    DisplaySurface *surface;
-    void *bits = NULL;
-#ifdef WIN32
-    HANDLE handle = NULL;
-#endif
-
     trace_displaysurface_create(width, height);
 
-#ifdef WIN32
-    bits = qemu_win32_map_alloc(width * height * 4, &handle, &error_abort);
-#endif
-
-    surface = qemu_create_displaysurface_from(
+    return qemu_create_displaysurface_from(
         width, height,
         PIXMAN_x8r8g8b8,
-        width * 4, bits
+        width * 4, NULL
     );
-    surface->flags = QEMU_ALLOCATED_FLAG;
-
-#ifdef WIN32
-    qemu_displaysurface_win32_set_handle(surface, handle, 0);
-#endif
-    return surface;
 }
 
 DisplaySurface *qemu_create_displaysurface_from(int width, int height,
@@ -514,15 +482,25 @@ DisplaySurface *qemu_create_displaysurface_from(int width, int height,
     DisplaySurface *surface = g_new0(DisplaySurface, 1);
 
     trace_displaysurface_create_from(surface, width, height, format);
-    surface->image = pixman_image_create_bits(format,
-                                              width, height,
-                                              (void *)data, linesize);
-    assert(surface->image != NULL);
-#ifdef WIN32
-    pixman_image_set_destroy_function(surface->image,
-                                      win32_pixman_image_destroy, surface);
-#endif
+    surface->share_handle = SHAREABLE_NONE;
 
+    if (data) {
+        surface->image = pixman_image_create_bits(format,
+                                                  width, height,
+                                                  (void *)data, linesize);
+    } else {
+        qemu_pixman_image_new_shareable(&surface->image,
+                                        &surface->share_handle,
+                                        "displaysurface",
+                                        format,
+                                        width,
+                                        height,
+                                        linesize,
+                                        &error_abort);
+        surface->flags = QEMU_ALLOCATED_FLAG;
+    }
+
+    assert(surface->image != NULL);
     return surface;
 }
 
@@ -531,6 +509,7 @@ DisplaySurface *qemu_create_displaysurface_pixman(pixman_image_t *image)
     DisplaySurface *surface = g_new0(DisplaySurface, 1);
 
     trace_displaysurface_create_pixman(surface);
+    surface->share_handle = SHAREABLE_NONE;
     surface->image = pixman_image_ref(image);
 
     return surface;
@@ -957,7 +936,7 @@ void dpy_text_resize(QemuConsole *con, int w, int h)
     }
 }
 
-void dpy_mouse_set(QemuConsole *c, int x, int y, int on)
+void dpy_mouse_set(QemuConsole *c, int x, int y, bool on)
 {
     QemuGraphicConsole *con = QEMU_GRAPHIC_CONSOLE(c);
     DisplayState *s = c->ds;
@@ -998,19 +977,6 @@ void dpy_cursor_define(QemuConsole *c, QEMUCursor *cursor)
             dcl->ops->dpy_cursor_define(dcl, cursor);
         }
     }
-}
-
-bool dpy_cursor_define_supported(QemuConsole *con)
-{
-    DisplayState *s = con->ds;
-    DisplayChangeListener *dcl;
-
-    QLIST_FOREACH(dcl, &s->listeners, next) {
-        if (dcl->ops->dpy_cursor_define) {
-            return true;
-        }
-    }
-    return false;
 }
 
 QEMUGLContext dpy_gl_ctx_create(QemuConsole *con,
@@ -1459,7 +1425,7 @@ int qemu_console_get_width(QemuConsole *con, int fallback)
     }
     switch (con->scanout.kind) {
     case SCANOUT_DMABUF:
-        return con->scanout.dmabuf->width;
+        return qemu_dmabuf_get_width(con->scanout.dmabuf);
     case SCANOUT_TEXTURE:
         return con->scanout.texture.width;
     case SCANOUT_SURFACE:
@@ -1476,7 +1442,7 @@ int qemu_console_get_height(QemuConsole *con, int fallback)
     }
     switch (con->scanout.kind) {
     case SCANOUT_DMABUF:
-        return con->scanout.dmabuf->height;
+        return qemu_dmabuf_get_height(con->scanout.dmabuf);
     case SCANOUT_TEXTURE:
         return con->scanout.texture.height;
     case SCANOUT_SURFACE:
@@ -1510,7 +1476,8 @@ void qemu_console_resize(QemuConsole *s, int width, int height)
     assert(QEMU_IS_GRAPHIC_CONSOLE(s));
 
     if ((s->scanout.kind != SCANOUT_SURFACE ||
-         (surface && !is_buffer_shared(surface) && !is_placeholder(surface))) &&
+         (surface && surface_is_allocated(surface) &&
+                     !surface_is_placeholder(surface))) &&
         qemu_console_get_width(s, -1) == width &&
         qemu_console_get_height(s, -1) == height) {
         return;
@@ -1643,4 +1610,9 @@ void qemu_display_help(void)
             printf("%s\n",  DisplayType_str(dpys[idx]->type));
         }
     }
+    printf("\n"
+           "Some display backends support suboptions, which can be set with\n"
+           "   -display backend,option=value,option=value...\n"
+           "For a short list of the suboptions for each display, see the "
+           "top-level -help output; more detail is in the documentation.\n");
 }

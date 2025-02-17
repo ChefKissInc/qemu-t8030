@@ -1,8 +1,8 @@
 /*
  * Apple s8000 SoC.
  *
- * Copyright (c) 2023-2024 Visual Ehrmanntraut (VisualEhrmanntraut).
- * Copyright (c) 2023 Christian Inci (chris-pcguy).
+ * Copyright (c) 2023-2025 Visual Ehrmanntraut (VisualEhrmanntraut).
+ * Copyright (c) 2023-2025 Christian Inci (chris-pcguy).
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -26,6 +26,7 @@
 #include "hw/arm/apple-silicon/s8000-config.c.inc"
 #include "hw/arm/apple-silicon/s8000.h"
 #include "hw/arm/apple-silicon/sep-sim.h"
+#include "hw/arm/apple-silicon/xnu_pf.h"
 #include "hw/arm/exynos4210.h"
 #include "hw/block/apple_nvme_mmu.h"
 #include "hw/display/adbe_v2.h"
@@ -118,21 +119,21 @@ static void s8000_create_s3c_uart(const S8000MachineState *s8000_machine,
     hwaddr *uart_offset;
     DTBNode *child;
 
-    child = find_dtb_node(s8000_machine->device_tree, "arm-io/uart0");
+    child = dtb_get_node(s8000_machine->device_tree, "arm-io/uart0");
     g_assert_nonnull(child);
 
-    g_assert_nonnull(find_dtb_prop(child, "boot-console"));
+    g_assert_nonnull(dtb_find_prop(child, "boot-console"));
 
-    prop = find_dtb_prop(child, "reg");
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
 
-    uart_offset = (hwaddr *)prop->value;
+    uart_offset = (hwaddr *)prop->data;
     base = s8000_machine->soc_base_pa + uart_offset[0];
 
-    prop = find_dtb_prop(child, "interrupts");
+    prop = dtb_find_prop(child, "interrupts");
     g_assert_nonnull(prop);
 
-    vector = *(uint32_t *)prop->value;
+    vector = *(uint32_t *)prop->data;
     dev = exynos4210_uart_create(
         base, 256, 0, chr,
         qdev_get_gpio_in(DEVICE(s8000_machine->aic), vector));
@@ -141,17 +142,15 @@ static void s8000_create_s3c_uart(const S8000MachineState *s8000_machine,
 
 static void s8000_patch_kernel(MachoHeader64 *hdr)
 {
+    xnu_kpf(hdr);
 }
 
-static bool s8000_check_panic(MachineState *machine)
+static bool s8000_check_panic(S8000MachineState *s8000_machine)
 {
-    S8000MachineState *s8000_machine;
     AppleEmbeddedPanicHeader *panic_info;
     bool ret;
 
-    s8000_machine = S8000_MACHINE(machine);
-
-    if (!s8000_machine->panic_size) {
+    if (s8000_machine->panic_size == 0) {
         return false;
     }
 
@@ -219,7 +218,7 @@ static void s8000_load_classic_kc(S8000MachineState *s8000_machine,
     hwaddr text_base;
     hwaddr prelink_text_base;
     DTBNode *memory_map =
-        get_dtb_node(s8000_machine->device_tree, "/chosen/memory-map");
+        dtb_get_node(s8000_machine->device_tree, "/chosen/memory-map");
     hwaddr tz1_virt_low;
     hwaddr tz1_virt_high;
 
@@ -255,19 +254,19 @@ static void s8000_load_classic_kc(S8000MachineState *s8000_machine,
     info_report("Kernel entry point: 0x" TARGET_FMT_lx, info->kern_entry);
 
     virt_end += g_virt_slide;
-    phys_ptr = vtop_static(align_16k_high(virt_end));
+    phys_ptr = vtop_static(ROUND_UP_16K(virt_end));
 
     // Device tree
     info->device_tree_addr = phys_ptr;
     dtb_va = ptov_static(info->device_tree_addr);
-    phys_ptr += align_16k_high(info->device_tree_size);
+    phys_ptr += info->device_tree_size;
 
     // RAM disk
     if (machine->initrd_filename) {
         info->ramdisk_addr = phys_ptr;
         macho_load_ramdisk(machine->initrd_filename, nsas, sysmem,
                            info->ramdisk_addr, &info->ramdisk_size);
-        info->ramdisk_size = align_16k_high(info->ramdisk_size);
+        info->ramdisk_size = ROUND_UP_16K(info->ramdisk_size);
         phys_ptr += info->ramdisk_size;
     }
 
@@ -276,18 +275,18 @@ static void s8000_load_classic_kc(S8000MachineState *s8000_machine,
         macho_load_raw_file(s8000_machine->sep_fw_filename, nsas, sysmem,
                             "sepfw", info->sep_fw_addr, &info->sep_fw_size);
     }
-    info->sep_fw_size = align_16k_high(8 * MiB);
+    info->sep_fw_size = ROUND_UP_16K(8 * MiB);
     phys_ptr += info->sep_fw_size;
 
     // Kernel boot args
     info->kern_boot_args_addr = phys_ptr;
     info->kern_boot_args_size = 0x4000;
-    phys_ptr += align_16k_high(0x4000);
+    phys_ptr += info->kern_boot_args_size;
 
     macho_load_dtb(s8000_machine->device_tree, nsas, sysmem, "DeviceTree",
                    info);
 
-    top_of_kernel_data_pa = (align_16k_high(phys_ptr) + 0x3000ull) & ~0x3FFFull;
+    top_of_kernel_data_pa = (ROUND_UP_16K(phys_ptr) + 0x3000ull) & ~0x3FFFull;
 
     info_report("Boot args: [%s]", cmdline);
     macho_setup_bootargs("BootArgs", nsas, sysmem, info->kern_boot_args_addr,
@@ -328,13 +327,13 @@ static void s8000_memory_setup(MachineState *machine)
     S8000MachineState *s8000_machine = S8000_MACHINE(machine);
     AppleBootInfo *info = &s8000_machine->bootinfo;
     AppleNvramState *nvram;
-    g_autofree char *cmdline;
+    char *cmdline;
     MachoHeader64 *hdr;
     DTBNode *memory_map;
 
-    memory_map = get_dtb_node(s8000_machine->device_tree, "/chosen/memory-map");
+    memory_map = dtb_get_node(s8000_machine->device_tree, "/chosen/memory-map");
 
-    if (s8000_check_panic(machine)) {
+    if (s8000_check_panic(s8000_machine)) {
         qemu_system_guest_panicked(NULL);
         return;
     }
@@ -344,7 +343,7 @@ static void s8000_memory_setup(MachineState *machine)
 
     nvram = APPLE_NVRAM(qdev_find_recursive(sysbus_get_default(), "nvram"));
     if (!nvram) {
-        error_setg(&error_abort, "%s: Failed to find nvram device", __func__);
+        error_setg(&error_abort, "Failed to find NVRAM device");
         return;
     };
     apple_nvram_load(nvram);
@@ -366,16 +365,12 @@ static void s8000_memory_setup(MachineState *machine)
     info_report("auto-boot=%s",
                 env_get_bool(nvram, "auto-boot", false) ? "true" : "false");
 
-    switch (s8000_machine->boot_mode) {
-    case kBootModeAuto:
-        if (!env_get_bool(nvram, "auto-boot", false)) {
-            asprintf(&cmdline, "-restore rd=md0 nand-enable-reformat=1 %s",
-                     machine->kernel_cmdline);
-            break;
-        }
-        QEMU_FALLTHROUGH;
-    default:
-        asprintf(&cmdline, "%s", machine->kernel_cmdline);
+    if (s8000_machine->boot_mode == kBootModeAuto &&
+        !env_get_bool(nvram, "auto-boot", false)) {
+        cmdline = g_strconcat("-restore rd=md0 nand-enable-reformat=1 ",
+                              machine->kernel_cmdline, NULL);
+    } else {
+        cmdline = g_strdup(machine->kernel_cmdline);
     }
 
     apple_nvram_save(nvram);
@@ -387,40 +382,40 @@ static void s8000_memory_setup(MachineState *machine)
     }
     if (apple_nvram_serialize(nvram, info->nvram_data,
                               sizeof(info->nvram_data)) < 0) {
-        error_report("%s: Failed to read NVRAM", __func__);
+        error_report("Failed to read NVRAM");
     }
 
     if (s8000_machine->ticket_filename) {
         if (!g_file_get_contents(s8000_machine->ticket_filename,
                                  &info->ticket_data,
                                  (gsize *)&info->ticket_length, NULL)) {
-            error_report("%s: Failed to read ticket from file %s", __func__,
+            error_report("Failed to read ticket from file %s",
                          s8000_machine->ticket_filename);
         }
     }
 
+    DTBNode *chosen = dtb_get_node(s8000_machine->device_tree, "chosen");
     if (xnu_contains_boot_arg(cmdline, "-restore", false)) {
         // HACK: Use DEV Hardware model to restore without FDR errors
-        set_dtb_prop(s8000_machine->device_tree, "compatible", 27,
-                     "N66DEV\0iPhone8,2\0AppleARM\0$");
+        dtb_set_prop(s8000_machine->device_tree, "compatible", 26,
+                     "N66DEV\0iPhone8,2\0AppleARM");
     } else {
-        set_dtb_prop(s8000_machine->device_tree, "compatible", 26,
-                     "N66AP\0iPhone8,2\0AppleARM\0$");
+        dtb_set_prop(s8000_machine->device_tree, "compatible", 25,
+                     "N66AP\0iPhone8,2\0AppleARM");
     }
 
     if (!xnu_contains_boot_arg(cmdline, "rd=", true)) {
-        DTBNode *chosen = find_dtb_node(s8000_machine->device_tree, "chosen");
-        DTBProp *prop = find_dtb_prop(chosen, "root-matching");
+        DTBProp *prop = dtb_find_prop(chosen, "root-matching");
 
         if (prop) {
-            snprintf((char *)prop->value, prop->length,
+            snprintf((char *)prop->data, prop->length,
                      "<dict><key>IOProviderClass</key><string>IOMedia</"
                      "string><key>IOPropertyMatch</key><dict><key>Partition "
                      "ID</key><integer>1</integer></dict></dict>");
         }
     }
 
-    DTBNode *pram = find_dtb_node(s8000_machine->device_tree, "pram");
+    DTBNode *pram = dtb_get_node(s8000_machine->device_tree, "pram");
     if (pram) {
         uint64_t panic_reg[2] = { 0 };
         uint64_t panic_base = S8000_PANIC_BASE;
@@ -429,21 +424,20 @@ static void s8000_memory_setup(MachineState *machine)
         panic_reg[0] = panic_base;
         panic_reg[1] = panic_size;
 
-        set_dtb_prop(pram, "reg", sizeof(panic_reg), &panic_reg);
-        DTBNode *chosen = find_dtb_node(s8000_machine->device_tree, "chosen");
-        set_dtb_prop(chosen, "embedded-panic-log-size", 8, &panic_size);
+        dtb_set_prop(pram, "reg", sizeof(panic_reg), &panic_reg);
+        dtb_set_prop_u64(chosen, "embedded-panic-log-size", panic_size);
         s8000_machine->panic_base = panic_base;
         s8000_machine->panic_size = panic_size;
     }
 
-    DTBNode *vram = find_dtb_node(s8000_machine->device_tree, "vram");
+    DTBNode *vram = dtb_get_node(s8000_machine->device_tree, "vram");
     if (vram) {
         uint64_t vram_reg[2] = { 0 };
         uint64_t vram_base = S8000_DISPLAY_BASE;
         uint64_t vram_size = S8000_DISPLAY_SIZE;
         vram_reg[0] = vram_base;
         vram_reg[1] = vram_size;
-        set_dtb_prop(vram, "reg", sizeof(vram_reg), &vram_reg);
+        dtb_set_prop(vram, "reg", sizeof(vram_reg), &vram_reg);
     }
 
     hdr = s8000_machine->kernel;
@@ -458,17 +452,19 @@ static void s8000_memory_setup(MachineState *machine)
         s8000_load_classic_kc(s8000_machine, cmdline);
         break;
     default:
-        error_setg(&error_abort, "%s: Unsupported kernelcache type: 0x%x\n",
-                   __func__, hdr->file_type);
+        error_setg(&error_abort, "Unsupported kernelcache type: 0x%x\n",
+                   hdr->file_type);
         break;
     }
+
+    g_free(cmdline);
 }
 
 static void pmgr_unk_reg_write(void *opaque, hwaddr addr, uint64_t data,
                                unsigned size)
 {
-    hwaddr base = (hwaddr)opaque;
 #if 0
+    hwaddr base = (hwaddr)opaque;
     qemu_log_mask(LOG_UNIMP,
                   "PMGR reg WRITE unk @ 0x" TARGET_FMT_lx
                   " base: 0x" TARGET_FMT_lx " value: 0x" TARGET_FMT_lx "\n",
@@ -557,27 +553,27 @@ static const MemoryRegionOps pmgr_reg_ops = {
     .read = pmgr_reg_read,
 };
 
-static void s8000_cpu_setup(MachineState *machine)
+static void s8000_cpu_setup(S8000MachineState *s8000_machine)
 {
     unsigned int i;
     DTBNode *root;
-    S8000MachineState *s8000_machine = S8000_MACHINE(machine);
+    MachineState *machine = MACHINE(s8000_machine);
     GList *iter;
     GList *next = NULL;
 
-    root = find_dtb_node(s8000_machine->device_tree, "cpus");
+    root = dtb_get_node(s8000_machine->device_tree, "cpus");
     g_assert_nonnull(root);
-    object_initialize_child(OBJECT(machine), "cluster", &s8000_machine->cluster,
-                            TYPE_CPU_CLUSTER);
+    object_initialize_child(OBJECT(s8000_machine), "cluster",
+                            &s8000_machine->cluster, TYPE_CPU_CLUSTER);
     qdev_prop_set_uint32(DEVICE(&s8000_machine->cluster), "cluster-id", 0);
 
-    for (iter = root->child_nodes, i = 0; iter; iter = next, i++) {
+    for (iter = root->children, i = 0; iter; iter = next, i++) {
         DTBNode *node;
 
         next = iter->next;
         node = (DTBNode *)iter->data;
         if (i >= machine->smp.cpus) {
-            remove_dtb_node(root, node);
+            dtb_remove_node(root, node);
             continue;
         }
 
@@ -592,32 +588,32 @@ static void s8000_cpu_setup(MachineState *machine)
     qdev_realize(DEVICE(&s8000_machine->cluster), NULL, &error_fatal);
 }
 
-static void s8000_create_aic(MachineState *machine)
+static void s8000_create_aic(S8000MachineState *s8000_machine)
 {
     unsigned int i;
     hwaddr *reg;
     DTBProp *prop;
-    S8000MachineState *s8000_machine = S8000_MACHINE(machine);
-    DTBNode *soc = find_dtb_node(s8000_machine->device_tree, "arm-io");
+    MachineState *machine = MACHINE(s8000_machine);
+    DTBNode *soc = dtb_get_node(s8000_machine->device_tree, "arm-io");
     DTBNode *child;
     DTBNode *timebase;
 
     g_assert_nonnull(soc);
-    child = find_dtb_node(soc, "aic");
+    child = dtb_get_node(soc, "aic");
     g_assert_nonnull(child);
-    timebase = find_dtb_node(soc, "aic-timebase");
+    timebase = dtb_get_node(soc, "aic-timebase");
     g_assert_nonnull(timebase);
 
     s8000_machine->aic = apple_aic_create(machine->smp.cpus, child, timebase);
-    object_property_add_child(OBJECT(machine), "aic",
+    object_property_add_child(OBJECT(s8000_machine), "aic",
                               OBJECT(s8000_machine->aic));
     g_assert_nonnull(s8000_machine->aic);
     sysbus_realize(s8000_machine->aic, &error_fatal);
 
-    prop = find_dtb_prop(child, "reg");
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
 
-    reg = (hwaddr *)prop->value;
+    reg = (hwaddr *)prop->data;
 
     for (i = 0; i < machine->smp.cpus; i++) {
         memory_region_add_subregion_overlap(
@@ -630,31 +626,30 @@ static void s8000_create_aic(MachineState *machine)
     }
 }
 
-static void s8000_pmgr_setup(MachineState *machine)
+static void s8000_pmgr_setup(S8000MachineState *s8000_machine)
 {
     uint64_t *reg;
     int i;
     char name[32];
     DTBProp *prop;
-    S8000MachineState *s8000_machine = S8000_MACHINE(machine);
     DTBNode *child;
 
-    child = find_dtb_node(s8000_machine->device_tree, "arm-io/pmgr");
+    child = dtb_get_node(s8000_machine->device_tree, "arm-io/pmgr");
     g_assert_nonnull(child);
 
-    prop = find_dtb_prop(child, "reg");
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
 
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
 
     for (i = 0; i < prop->length / 8; i += 2) {
         MemoryRegion *mem = g_new(MemoryRegion, 1);
         if (i == 0) {
-            memory_region_init_io(mem, OBJECT(machine), &pmgr_reg_ops,
+            memory_region_init_io(mem, OBJECT(s8000_machine), &pmgr_reg_ops,
                                   s8000_machine, "pmgr-reg", reg[i + 1]);
         } else {
             snprintf(name, sizeof(name), "pmgr-unk-reg-%d", i);
-            memory_region_init_io(mem, OBJECT(machine), &pmgr_unk_reg_ops,
+            memory_region_init_io(mem, OBJECT(s8000_machine), &pmgr_unk_reg_ops,
                                   (void *)reg[i], name, reg[i + 1]);
         }
         memory_region_add_subregion_overlap(
@@ -665,37 +660,36 @@ static void s8000_pmgr_setup(MachineState *machine)
             mem, -1);
     }
 
-    set_dtb_prop(child, "voltage-states1", sizeof(s8000_voltage_states1),
+    dtb_set_prop(child, "voltage-states1", sizeof(s8000_voltage_states1),
                  s8000_voltage_states1);
 }
 
-static void s8000_create_nvme(MachineState *machine)
+static void s8000_create_nvme(S8000MachineState *s8000_machine)
 {
     uint32_t *ints;
     DTBProp *prop;
     uint64_t *reg;
-    S8000MachineState *s8000_machine = S8000_MACHINE(machine);
     SysBusDevice *nvme;
     DTBNode *child;
 
-    child = find_dtb_node(s8000_machine->device_tree, "arm-io/nvme-mmu0");
+    child = dtb_get_node(s8000_machine->device_tree, "arm-io/nvme-mmu0");
     g_assert_nonnull(child);
 
     nvme = apple_nvme_mmu_create(child);
     g_assert_nonnull(nvme);
 
-    prop = find_dtb_prop(child, "reg");
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
 
     sysbus_mmio_map(nvme, 0, s8000_machine->soc_base_pa + reg[0]);
 
-    object_property_add_child(OBJECT(machine), "nvme", OBJECT(nvme));
+    object_property_add_child(OBJECT(s8000_machine), "nvme", OBJECT(nvme));
 
-    prop = find_dtb_prop(child, "interrupts");
+    prop = dtb_find_prop(child, "interrupts");
     g_assert_nonnull(prop);
     g_assert_cmpuint(prop->length, ==, 4);
-    ints = (uint32_t *)prop->value;
+    ints = (uint32_t *)prop->data;
 
     sysbus_connect_irq(nvme, 0,
                        qdev_get_gpio_in(DEVICE(s8000_machine->aic), ints[0]));
@@ -703,31 +697,31 @@ static void s8000_create_nvme(MachineState *machine)
     sysbus_realize_and_unref(nvme, &error_fatal);
 }
 
-static void s8000_create_gpio(MachineState *machine, const char *name)
+static void s8000_create_gpio(S8000MachineState *s8000_machine,
+                              const char *name)
 {
     DeviceState *gpio = NULL;
     DTBProp *prop;
     uint64_t *reg;
     uint32_t *ints;
     int i;
-    S8000MachineState *s8000_machine = S8000_MACHINE(machine);
-    DTBNode *child = find_dtb_node(s8000_machine->device_tree, "arm-io");
+    DTBNode *child = dtb_get_node(s8000_machine->device_tree, "arm-io");
 
-    child = find_dtb_node(child, name);
+    child = dtb_get_node(child, name);
     g_assert_nonnull(child);
     gpio = apple_gpio_create(child);
     g_assert_nonnull(gpio);
-    object_property_add_child(OBJECT(machine), name, OBJECT(gpio));
+    object_property_add_child(OBJECT(s8000_machine), name, OBJECT(gpio));
 
-    prop = find_dtb_prop(child, "reg");
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
     sysbus_mmio_map(SYS_BUS_DEVICE(gpio), 0,
                     s8000_machine->soc_base_pa + reg[0]);
-    prop = find_dtb_prop(child, "interrupts");
+    prop = dtb_find_prop(child, "interrupts");
     g_assert_nonnull(prop);
 
-    ints = (uint32_t *)prop->value;
+    ints = (uint32_t *)prop->data;
 
     for (i = 0; i < prop->length / sizeof(uint32_t); i++) {
         sysbus_connect_irq(
@@ -738,30 +732,29 @@ static void s8000_create_gpio(MachineState *machine, const char *name)
     sysbus_realize_and_unref(SYS_BUS_DEVICE(gpio), &error_fatal);
 }
 
-static void s8000_create_i2c(MachineState *machine, const char *name)
+static void s8000_create_i2c(S8000MachineState *s8000_machine, const char *name)
 {
     SysBusDevice *i2c;
     DTBProp *prop;
     uint64_t *reg;
     uint32_t *ints;
     int i;
-    S8000MachineState *s8000_machine = S8000_MACHINE(machine);
-    DTBNode *child = find_dtb_node(s8000_machine->device_tree, "arm-io");
+    DTBNode *child = dtb_get_node(s8000_machine->device_tree, "arm-io");
 
-    child = find_dtb_node(child, name);
+    child = dtb_get_node(child, name);
     g_assert_nonnull(child);
     i2c = apple_i2c_create(name);
     g_assert_nonnull(i2c);
-    object_property_add_child(OBJECT(machine), name, OBJECT(i2c));
+    object_property_add_child(OBJECT(s8000_machine), name, OBJECT(i2c));
 
-    prop = find_dtb_prop(child, "reg");
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
     sysbus_mmio_map(i2c, 0, s8000_machine->soc_base_pa + reg[0]);
-    prop = find_dtb_prop(child, "interrupts");
+    prop = dtb_find_prop(child, "interrupts");
     g_assert_nonnull(prop);
 
-    ints = (uint32_t *)prop->value;
+    ints = (uint32_t *)prop->data;
 
     for (i = 0; i < prop->length / sizeof(uint32_t); i++) {
         sysbus_connect_irq(
@@ -771,18 +764,17 @@ static void s8000_create_i2c(MachineState *machine, const char *name)
     sysbus_realize_and_unref(i2c, &error_fatal);
 }
 
-static void s8000_create_spi0(MachineState *machine)
+static void s8000_create_spi0(S8000MachineState *s8000_machine)
 {
     DeviceState *spi = NULL;
     DeviceState *gpio = NULL;
-    S8000MachineState *s8000_machine = S8000_MACHINE(machine);
     const char *name = "spi0";
 
     spi = qdev_new(TYPE_APPLE_SPI);
     g_assert_nonnull(spi);
     DEVICE(spi)->id = g_strdup(name);
 
-    object_property_add_child(OBJECT(machine), name, OBJECT(spi));
+    object_property_add_child(OBJECT(s8000_machine), name, OBJECT(spi));
     sysbus_realize_and_unref(SYS_BUS_DEVICE(spi), &error_fatal);
 
     sysbus_mmio_map(SYS_BUS_DEVICE(spi), 0,
@@ -792,119 +784,115 @@ static void s8000_create_spi0(MachineState *machine)
         SYS_BUS_DEVICE(spi), 0,
         qdev_get_gpio_in(DEVICE(s8000_machine->aic), S8000_SPI0_IRQ));
     // The second sysbus IRQ is the cs line
-    gpio =
-        DEVICE(object_property_get_link(OBJECT(machine), "gpio", &error_fatal));
+    gpio = DEVICE(
+        object_property_get_link(OBJECT(s8000_machine), "gpio", &error_fatal));
     qdev_connect_gpio_out(gpio, S8000_GPIO_SPI0_CS,
                           qdev_get_gpio_in_named(spi, SSI_GPIO_CS, 0));
 }
 
-static void s8000_create_spi(MachineState *machine, const char *name)
+static void s8000_create_spi(S8000MachineState *s8000_machine, const char *name)
 {
     SysBusDevice *spi = NULL;
     DTBProp *prop;
     uint64_t *reg;
     uint32_t *ints;
-    S8000MachineState *s8000_machine = S8000_MACHINE(machine);
-    DTBNode *child = find_dtb_node(s8000_machine->device_tree, "arm-io");
+    DTBNode *child = dtb_get_node(s8000_machine->device_tree, "arm-io");
 
-    child = find_dtb_node(child, name);
+    child = dtb_get_node(child, name);
     g_assert_nonnull(child);
     spi = apple_spi_create(child);
     g_assert_nonnull(spi);
-    object_property_add_child(OBJECT(machine), name, OBJECT(spi));
+    object_property_add_child(OBJECT(s8000_machine), name, OBJECT(spi));
     sysbus_realize_and_unref(SYS_BUS_DEVICE(spi), &error_fatal);
 
-    prop = find_dtb_prop(child, "reg");
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
     sysbus_mmio_map(SYS_BUS_DEVICE(spi), 0,
                     s8000_machine->soc_base_pa + reg[0]);
-    prop = find_dtb_prop(child, "interrupts");
+    prop = dtb_find_prop(child, "interrupts");
     g_assert_nonnull(prop);
 
     // The second sysbus IRQ is the cs line
     // TODO: Connect this to gpio over spi_cs0?
-    ints = (uint32_t *)prop->value;
+    ints = (uint32_t *)prop->data;
     sysbus_connect_irq(SYS_BUS_DEVICE(spi), 0,
                        qdev_get_gpio_in(DEVICE(s8000_machine->aic), ints[0]));
 }
 
-static void s8000_create_usb(MachineState *machine)
+static void s8000_create_usb(S8000MachineState *s8000_machine)
 {
-    S8000MachineState *s8000_machine = S8000_MACHINE(machine);
-    DTBNode *child = find_dtb_node(s8000_machine->device_tree, "arm-io");
+    DTBNode *child = dtb_get_node(s8000_machine->device_tree, "arm-io");
     DTBNode *phy, *complex, *device;
     DTBProp *prop;
     DeviceState *otg;
 
-    phy = get_dtb_node(child, "otgphyctrl");
+    phy = dtb_get_node(child, "otgphyctrl");
     g_assert_nonnull(phy);
 
-    complex = get_dtb_node(child, "usb-complex");
+    complex = dtb_get_node(child, "usb-complex");
     g_assert_nonnull(complex);
 
-    device = get_dtb_node(complex, "usb-device");
+    device = dtb_get_node(complex, "usb-device");
     g_assert_nonnull(device);
 
     otg = apple_otg_create(complex);
-    object_property_add_child(OBJECT(machine), "otg", OBJECT(otg));
-    prop = find_dtb_prop(phy, "reg");
+    object_property_add_child(OBJECT(s8000_machine), "otg", OBJECT(otg));
+    prop = dtb_find_prop(phy, "reg");
     g_assert_nonnull(prop);
     sysbus_mmio_map(SYS_BUS_DEVICE(otg), 0,
-                    s8000_machine->soc_base_pa + ((uint64_t *)prop->value)[0]);
+                    s8000_machine->soc_base_pa + ((uint64_t *)prop->data)[0]);
     sysbus_mmio_map(SYS_BUS_DEVICE(otg), 1,
-                    s8000_machine->soc_base_pa + ((uint64_t *)prop->value)[2]);
+                    s8000_machine->soc_base_pa + ((uint64_t *)prop->data)[2]);
     sysbus_mmio_map(
         SYS_BUS_DEVICE(otg), 2,
         s8000_machine->soc_base_pa +
-            ((uint64_t *)find_dtb_prop(complex, "ranges")->value)[1] +
-            ((uint64_t *)find_dtb_prop(device, "reg")->value)[0]);
+            ((uint64_t *)dtb_find_prop(complex, "ranges")->data)[1] +
+            ((uint64_t *)dtb_find_prop(device, "reg")->data)[0]);
 
-    prop = find_dtb_prop(complex, "reg");
+    prop = dtb_find_prop(complex, "reg");
     if (prop) {
         sysbus_mmio_map(SYS_BUS_DEVICE(otg), 3,
                         s8000_machine->soc_base_pa +
-                            ((uint64_t *)prop->value)[0]);
+                            ((uint64_t *)prop->data)[0]);
     }
 
     sysbus_realize_and_unref(SYS_BUS_DEVICE(otg), &error_fatal);
 
-    prop = find_dtb_prop(device, "interrupts");
+    prop = dtb_find_prop(device, "interrupts");
     g_assert_nonnull(prop);
     sysbus_connect_irq(SYS_BUS_DEVICE(otg), 0,
                        qdev_get_gpio_in(DEVICE(s8000_machine->aic),
-                                        ((uint32_t *)prop->value)[0]));
+                                        ((uint32_t *)prop->data)[0]));
 }
 
-static void s8000_create_wdt(MachineState *machine)
+static void s8000_create_wdt(S8000MachineState *s8000_machine)
 {
     int i;
     uint32_t *ints;
     DTBProp *prop;
     uint64_t *reg;
-    uint32_t value;
-    S8000MachineState *s8000_machine = S8000_MACHINE(machine);
     SysBusDevice *wdt;
-    DTBNode *child = find_dtb_node(s8000_machine->device_tree, "arm-io");
+    DTBNode *child = dtb_get_node(s8000_machine->device_tree, "arm-io");
 
     g_assert_nonnull(child);
-    child = find_dtb_node(child, "wdt");
+    child = dtb_get_node(child, "wdt");
     g_assert_nonnull(child);
 
     wdt = apple_wdt_create(child);
     g_assert_nonnull(wdt);
 
-    object_property_add_child(OBJECT(machine), "wdt", OBJECT(wdt));
-    prop = find_dtb_prop(child, "reg");
+    object_property_add_child(OBJECT(s8000_machine), "wdt", OBJECT(wdt));
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
 
     sysbus_mmio_map(wdt, 0, s8000_machine->soc_base_pa + reg[0]);
     sysbus_mmio_map(wdt, 1, s8000_machine->soc_base_pa + reg[2]);
 
-    prop = find_dtb_prop(child, "interrupts");
+    prop = dtb_find_prop(child, "interrupts");
     g_assert_nonnull(prop);
-    ints = (uint32_t *)prop->value;
+    ints = (uint32_t *)prop->data;
 
     for (i = 0; i < prop->length / sizeof(uint32_t); i++) {
         sysbus_connect_irq(
@@ -912,52 +900,42 @@ static void s8000_create_wdt(MachineState *machine)
     }
 
     // TODO: MCC
-    prop = find_dtb_prop(child, "function-panic_flush_helper");
-    if (prop) {
-        remove_dtb_prop(child, prop);
-    }
+    dtb_remove_prop_named(child, "function-panic_flush_helper");
+    dtb_remove_prop_named(child, "function-panic_halt_helper");
 
-    prop = find_dtb_prop(child, "function-panic_halt_helper");
-    if (prop) {
-        remove_dtb_prop(child, prop);
-    }
-
-    value = 1;
-    set_dtb_prop(child, "no-pmu", sizeof(value), &value);
+    dtb_set_prop_u32(child, "no-pmu", 1);
 
     sysbus_realize_and_unref(wdt, &error_fatal);
 }
 
-static void s8000_create_aes(MachineState *machine)
+static void s8000_create_aes(S8000MachineState *s8000_machine)
 {
-    S8000MachineState *s8000_machine;
     DTBNode *child;
     SysBusDevice *aes;
     DTBProp *prop;
     uint64_t *reg;
     uint32_t *ints;
 
-    s8000_machine = S8000_MACHINE(machine);
-    child = find_dtb_node(s8000_machine->device_tree, "arm-io");
+    child = dtb_get_node(s8000_machine->device_tree, "arm-io");
     g_assert_nonnull(child);
-    child = find_dtb_node(child, "aes");
+    child = dtb_get_node(child, "aes");
     g_assert_nonnull(child);
 
-    aes = apple_aes_create(child);
+    aes = apple_aes_create(child, s8000_machine->board_id);
     g_assert_nonnull(aes);
 
-    object_property_add_child(OBJECT(machine), "aes", OBJECT(aes));
-    prop = find_dtb_prop(child, "reg");
+    object_property_add_child(OBJECT(s8000_machine), "aes", OBJECT(aes));
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
 
     sysbus_mmio_map(aes, 0, s8000_machine->soc_base_pa + reg[0]);
     sysbus_mmio_map(aes, 1, s8000_machine->soc_base_pa + reg[2]);
 
-    prop = find_dtb_prop(child, "interrupts");
+    prop = dtb_find_prop(child, "interrupts");
     g_assert_nonnull(prop);
     g_assert_cmpuint(prop->length, ==, 4);
-    ints = (uint32_t *)prop->value;
+    ints = (uint32_t *)prop->data;
 
     sysbus_connect_irq(aes, 0,
                        qdev_get_gpio_in(DEVICE(s8000_machine->aic), *ints));
@@ -968,36 +946,34 @@ static void s8000_create_aes(MachineState *machine)
     sysbus_realize_and_unref(aes, &error_fatal);
 }
 
-static void s8000_create_sep(MachineState *machine)
+static void s8000_create_sep(S8000MachineState *s8000_machine)
 {
-    S8000MachineState *s8000_machine;
     DTBNode *child;
     DTBProp *prop;
     uint64_t *reg;
     uint32_t *ints;
     int i;
 
-    s8000_machine = S8000_MACHINE(machine);
-    child = find_dtb_node(s8000_machine->device_tree, "arm-io");
+    child = dtb_get_node(s8000_machine->device_tree, "arm-io");
     g_assert_nonnull(child);
-    child = find_dtb_node(child, "sep");
+    child = dtb_get_node(child, "sep");
     g_assert_nonnull(child);
 
     s8000_machine->sep = SYS_BUS_DEVICE(apple_sep_sim_create(child, false));
     g_assert_nonnull(s8000_machine->sep);
 
-    object_property_add_child(OBJECT(machine), "sep",
+    object_property_add_child(OBJECT(s8000_machine), "sep",
                               OBJECT(s8000_machine->sep));
-    prop = find_dtb_prop(child, "reg");
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
 
     sysbus_mmio_map_overlap(SYS_BUS_DEVICE(s8000_machine->sep), 0,
                             s8000_machine->soc_base_pa + reg[0], 2);
 
-    prop = find_dtb_prop(child, "interrupts");
+    prop = dtb_find_prop(child, "interrupts");
     g_assert_nonnull(prop);
-    ints = (uint32_t *)prop->value;
+    ints = (uint32_t *)prop->data;
 
     for (i = 0; i < prop->length / sizeof(uint32_t); i++) {
         sysbus_connect_irq(
@@ -1011,51 +987,53 @@ static void s8000_create_sep(MachineState *machine)
     sysbus_realize_and_unref(SYS_BUS_DEVICE(s8000_machine->sep), &error_fatal);
 }
 
-static void s8000_create_pmu(MachineState *machine)
+static void s8000_create_pmu(S8000MachineState *s8000_machine)
 {
-    S8000MachineState *s8000_machine = S8000_MACHINE(machine);
+    AppleI2CState *i2c;
     DTBNode *child;
     DTBProp *prop;
+    DeviceState *dev;
     DeviceState *gpio;
-    PMUD2255State *pmu;
     uint32_t *ints;
 
-    child = find_dtb_node(s8000_machine->device_tree, "arm-io/i2c0/pmu");
+    i2c = APPLE_I2C(
+        object_property_get_link(OBJECT(s8000_machine), "i2c0", &error_fatal));
+
+    child = dtb_get_node(s8000_machine->device_tree, "arm-io/i2c0/pmu");
     g_assert_nonnull(child);
 
-    prop = find_dtb_prop(child, "reg");
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
-    pmu = pmu_d2255_create(machine, *(uint32_t *)prop->value);
 
-    prop = find_dtb_prop(child, "interrupts");
+    dev = DEVICE(i2c_slave_create_simple(i2c->bus, TYPE_PMU_D2255,
+                                         *(uint32_t *)prop->data));
+
+    prop = dtb_find_prop(child, "interrupts");
     g_assert_nonnull(prop);
-    ints = (uint32_t *)prop->value;
+    ints = (uint32_t *)prop->data;
 
-    gpio =
-        DEVICE(object_property_get_link(OBJECT(machine), "gpio", &error_fatal));
-    qdev_connect_gpio_out(DEVICE(pmu), 0, qdev_get_gpio_in(gpio, ints[0]));
+    gpio = DEVICE(
+        object_property_get_link(OBJECT(s8000_machine), "gpio", &error_fatal));
+    qdev_connect_gpio_out(dev, 0, qdev_get_gpio_in(gpio, ints[0]));
 }
 
-static void s8000_display_create(MachineState *machine)
+static void s8000_display_create(S8000MachineState *s8000_machine)
 {
-    S8000MachineState *s8000_machine;
+    MachineState *machine;
     ADBEV2 *s;
     SysBusDevice *sbd;
     DTBNode *child;
     uint64_t *reg;
     DTBProp *prop;
 
-    s8000_machine = S8000_MACHINE(machine);
+    machine = MACHINE(s8000_machine);
 
-    child = find_dtb_node(s8000_machine->device_tree, "arm-io/disp0");
+    child = dtb_get_node(s8000_machine->device_tree, "arm-io/disp0");
     g_assert_nonnull(child);
 
-    prop = find_dtb_prop(child, "iommu-parent");
-    if (prop) {
-        remove_dtb_prop(child, prop);
-    }
+    dtb_remove_prop_named(child, "iommu-parent");
 
-    s = adbe_v2_create(machine, child);
+    s = adbe_v2_create(child);
     sbd = SYS_BUS_DEVICE(s);
     s8000_machine->video.base_addr = S8000_DISPLAY_BASE;
     s8000_machine->video.row_bytes = s->width * 4;
@@ -1068,9 +1046,9 @@ static void s8000_display_create(MachineState *machine)
         s8000_machine->video.display = 0;
     }
 
-    prop = find_dtb_prop(child, "reg");
+    prop = dtb_find_prop(child, "reg");
     g_assert_nonnull(prop);
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
 
     sysbus_mmio_map(sbd, 0, s8000_machine->soc_base_pa + reg[0]);
     sysbus_mmio_map(sbd, 1, s8000_machine->soc_base_pa + reg[2]);
@@ -1079,9 +1057,9 @@ static void s8000_display_create(MachineState *machine)
     sysbus_mmio_map(sbd, 4, s8000_machine->soc_base_pa + reg[8]);
     sysbus_mmio_map(sbd, 5, s8000_machine->soc_base_pa + reg[10]);
 
-    prop = find_dtb_prop(child, "interrupts");
+    prop = dtb_find_prop(child, "interrupts");
     g_assert_nonnull(prop);
-    uint32_t *ints = (uint32_t *)prop->value;
+    uint32_t *ints = (uint32_t *)prop->data;
 
     for (size_t i = 0; i < prop->length / sizeof(uint32_t); i++) {
         sysbus_init_irq(sbd, &s->irqs[i]);
@@ -1122,15 +1100,11 @@ static void s8000_cpu_reset_work(CPUState *cpu, run_on_cpu_data data)
     cpu_set_pc(cpu, s8000_machine->bootinfo.tz1_entry);
 }
 
-static void apple_a9_reset(void *opaque)
+static void apple_a9_reset(S8000MachineState *s8000_machine)
 {
-    MachineState *machine;
-    S8000MachineState *s8000_machine;
     CPUState *cpu;
     AppleA9State *tcpu;
 
-    machine = MACHINE(opaque);
-    s8000_machine = S8000_MACHINE(machine);
     CPU_FOREACH (cpu) {
         tcpu = APPLE_A9(cpu);
         object_property_set_int(OBJECT(cpu), "rvbar", S8000_TZ1_BASE,
@@ -1146,19 +1120,18 @@ static void apple_a9_reset(void *opaque)
     }
 }
 
-static void s8000_machine_reset(MachineState *machine, ShutdownCause reason)
+static void s8000_machine_reset(MachineState *machine, ResetType type)
 {
     S8000MachineState *s8000_machine = S8000_MACHINE(machine);
     DeviceState *gpio = NULL;
 
-    qemu_devices_reset(reason);
+    qemu_devices_reset(type);
+
     if (!runstate_check(RUN_STATE_RESTORE_VM) &&
         !runstate_check(RUN_STATE_PRELAUNCH)) {
-        if (!runstate_check(RUN_STATE_PAUSED) ||
-            reason != SHUTDOWN_CAUSE_NONE) {
-            s8000_memory_setup(MACHINE(s8000_machine));
-        }
+        s8000_memory_setup(MACHINE(s8000_machine));
     }
+
     apple_a9_reset(s8000_machine);
 
     gpio =
@@ -1181,10 +1154,9 @@ static void s8000_machine_init(MachineState *machine)
     DTBNode *child;
     DTBProp *prop;
     hwaddr *ranges;
-    MachoHeader64 *hdr, *secure_monitor = 0;
+    MachoHeader64 *hdr, *secure_monitor = NULL;
     uint32_t build_version;
-    uint64_t kernel_low = 0, kernel_high = 0;
-    uint32_t data;
+    uint64_t kernel_low, kernel_high;
     uint8_t buffer[0x40];
 
     s8000_machine->sysmem = get_system_memory();
@@ -1224,109 +1196,98 @@ static void s8000_machine_init(MachineState *machine)
     s8000_machine->trustcache =
         load_trustcache_from_file(s8000_machine->trustcache_filename,
                                   &s8000_machine->bootinfo.trustcache_size);
-    data = 24000000;
-    set_dtb_prop(s8000_machine->device_tree, "clock-frequency", sizeof(data),
-                 &data);
-    child = find_dtb_node(s8000_machine->device_tree, "arm-io");
+    dtb_set_prop_u32(s8000_machine->device_tree, "clock-frequency", 24000000);
+    child = dtb_get_node(s8000_machine->device_tree, "arm-io");
     g_assert_nonnull(child);
 
-    data = 0x0;
-    set_dtb_prop(child, "chip-revision", sizeof(data), &data);
+    dtb_set_prop_u32(child, "chip-revision", 0);
 
-    set_dtb_prop(child, "clock-frequencies", sizeof(s8000_clock_frequencies),
+    dtb_set_prop(child, "clock-frequencies", sizeof(s8000_clock_frequencies),
                  s8000_clock_frequencies);
 
-    prop = find_dtb_prop(child, "ranges");
+    prop = dtb_find_prop(child, "ranges");
     g_assert_nonnull(prop);
 
-    ranges = (hwaddr *)prop->value;
+    ranges = (hwaddr *)prop->data;
     s8000_machine->soc_base_pa = ranges[1];
     s8000_machine->soc_size = ranges[2];
 
     memset(buffer, 0, sizeof(buffer));
     memcpy(buffer, "s8000", 5);
-    set_dtb_prop(s8000_machine->device_tree, "platform-name", 32, buffer);
+    dtb_set_prop(s8000_machine->device_tree, "platform-name", 32, buffer);
     memset(buffer, 0, sizeof(buffer));
     memcpy(buffer, "MWL72", 5);
-    set_dtb_prop(s8000_machine->device_tree, "model-number", 32, buffer);
+    dtb_set_prop(s8000_machine->device_tree, "model-number", 32, buffer);
     memset(buffer, 0, sizeof(buffer));
     memcpy(buffer, "LL/A", 4);
-    set_dtb_prop(s8000_machine->device_tree, "region-info", 32, buffer);
+    dtb_set_prop(s8000_machine->device_tree, "region-info", 32, buffer);
     memset(buffer, 0, sizeof(buffer));
-    set_dtb_prop(s8000_machine->device_tree, "config-number", 0x40, buffer);
+    dtb_set_prop(s8000_machine->device_tree, "config-number", 0x40, buffer);
     memset(buffer, 0, sizeof(buffer));
     memcpy(buffer, "C39ZRMDEN72J", 12);
-    set_dtb_prop(s8000_machine->device_tree, "serial-number", 32, buffer);
+    dtb_set_prop(s8000_machine->device_tree, "serial-number", 32, buffer);
     memset(buffer, 0, sizeof(buffer));
     memcpy(buffer, "C39948108J9N72J1F", 17);
-    set_dtb_prop(s8000_machine->device_tree, "mlb-serial-number", 32, buffer);
+    dtb_set_prop(s8000_machine->device_tree, "mlb-serial-number", 32, buffer);
     memset(buffer, 0, sizeof(buffer));
     memcpy(buffer, "A2111", 5);
-    set_dtb_prop(s8000_machine->device_tree, "regulatory-model-number", 32,
+    dtb_set_prop(s8000_machine->device_tree, "regulatory-model-number", 32,
                  buffer);
 
-    child = get_dtb_node(s8000_machine->device_tree, "chosen");
-    data = 0x8000;
-    set_dtb_prop(child, "chip-id", 4, &data);
-    data = 0x1; // board-id ; match with apple_aes.c
-    set_dtb_prop(child, "board-id", 4, &data);
+    child = dtb_get_node(s8000_machine->device_tree, "chosen");
+    dtb_set_prop_u32(child, "chip-id", 0x8000);
+    s8000_machine->board_id = 1; // Match with apple_aes.c
+    dtb_set_prop_u32(child, "board-id", s8000_machine->board_id);
 
     if (s8000_machine->ecid == 0) {
         s8000_machine->ecid = 0x1122334455667788;
     }
-    set_dtb_prop(child, "unique-chip-id", 8, &s8000_machine->ecid);
+    dtb_set_prop_u64(child, "unique-chip-id", s8000_machine->ecid);
 
     // Update the display parameters
-    data = 0;
-    set_dtb_prop(child, "display-rotation", sizeof(data), &data);
-    data = 2;
-    set_dtb_prop(child, "display-scale", sizeof(data), &data);
+    dtb_set_prop_u32(child, "display-rotation", 0);
+    dtb_set_prop_u32(child, "display-scale", 2);
 
-    child = get_dtb_node(s8000_machine->device_tree, "product");
+    child = dtb_get_node(s8000_machine->device_tree, "product");
 
-    data = 1;
-    g_assert_nonnull(set_dtb_prop(child, "oled-display", sizeof(data), &data));
-    g_assert_nonnull(
-        set_dtb_prop(child, "graphics-featureset-class", 7, "MTL1,2"));
-    g_assert_nonnull(set_dtb_prop(child, "graphics-featureset-fallbacks", 15,
-                                  "MTL1,2:GLES2,0"));
-    data = 0;
-    g_assert_nonnull(
-        set_dtb_prop(child, "device-color-policy", sizeof(data), &data));
+    dtb_set_prop_u32(child, "oled-display", 1);
+    dtb_set_prop(child, "graphics-featureset-class", 1, "");
+    dtb_set_prop(child, "graphics-featureset-fallbacks", 1, "");
+    dtb_set_prop_u32(child, "device-color-policy", 0);
 
-    s8000_cpu_setup(machine);
+    s8000_cpu_setup(s8000_machine);
 
-    s8000_create_aic(machine);
+    s8000_create_aic(s8000_machine);
 
     s8000_create_s3c_uart(s8000_machine, serial_hd(0));
 
-    s8000_pmgr_setup(machine);
+    s8000_pmgr_setup(s8000_machine);
 
-    s8000_create_nvme(machine);
+    s8000_create_nvme(s8000_machine);
 
-    s8000_create_gpio(machine, "gpio");
-    s8000_create_gpio(machine, "aop-gpio");
+    s8000_create_gpio(s8000_machine, "gpio");
+    s8000_create_gpio(s8000_machine, "aop-gpio");
 
-    s8000_create_i2c(machine, "i2c0");
-    s8000_create_i2c(machine, "i2c1");
-    s8000_create_i2c(machine, "i2c2");
+    s8000_create_i2c(s8000_machine, "i2c0");
+    s8000_create_i2c(s8000_machine, "i2c1");
+    s8000_create_i2c(s8000_machine, "i2c2");
 
-    s8000_create_usb(machine);
+    s8000_create_usb(s8000_machine);
 
-    s8000_create_wdt(machine);
+    s8000_create_wdt(s8000_machine);
 
-    s8000_create_aes(machine);
+    s8000_create_aes(s8000_machine);
 
-    s8000_create_spi0(machine);
-    s8000_create_spi(machine, "spi1");
-    s8000_create_spi(machine, "spi2");
-    s8000_create_spi(machine, "spi3");
+    s8000_create_spi0(s8000_machine);
+    s8000_create_spi(s8000_machine, "spi1");
+    s8000_create_spi(s8000_machine, "spi2");
+    s8000_create_spi(s8000_machine, "spi3");
 
-    s8000_create_sep(machine);
+    s8000_create_sep(s8000_machine);
 
-    s8000_create_pmu(machine);
+    s8000_create_pmu(s8000_machine);
 
-    s8000_display_create(machine);
+    s8000_display_create(s8000_machine);
 
     s8000_machine->init_done_notifier.notify = s8000_machine_init_done;
     qemu_add_machine_init_done_notifier(&s8000_machine->init_done_notifier);

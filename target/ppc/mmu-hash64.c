@@ -21,6 +21,7 @@
 #include "qemu/units.h"
 #include "cpu.h"
 #include "exec/exec-all.h"
+#include "exec/page-protection.h"
 #include "qemu/error-report.h"
 #include "qemu/qemu-print.h"
 #include "sysemu/hw_accel.h"
@@ -30,6 +31,7 @@
 #include "hw/hw.h"
 #include "internal.h"
 #include "mmu-book3s-v3.h"
+#include "mmu-books.h"
 #include "helper_regs.h"
 
 #ifdef CONFIG_TCG
@@ -507,6 +509,46 @@ static int ppc_hash64_amr_prot(PowerPCCPU *cpu, ppc_hash_pte64_t pte)
     return prot;
 }
 
+static hwaddr ppc_hash64_hpt_base(PowerPCCPU *cpu)
+{
+    uint64_t base;
+
+    if (cpu->vhyp) {
+        return 0;
+    }
+    if (cpu->env.mmu_model == POWERPC_MMU_3_00) {
+        ppc_v3_pate_t pate;
+
+        if (!ppc64_v3_get_pate(cpu, cpu->env.spr[SPR_LPIDR], &pate)) {
+            return 0;
+        }
+        base = pate.dw0;
+    } else {
+        base = cpu->env.spr[SPR_SDR1];
+    }
+    return base & SDR_64_HTABORG;
+}
+
+static hwaddr ppc_hash64_hpt_mask(PowerPCCPU *cpu)
+{
+    uint64_t base;
+
+    if (cpu->vhyp) {
+        return cpu->vhyp_class->hpt_mask(cpu->vhyp);
+    }
+    if (cpu->env.mmu_model == POWERPC_MMU_3_00) {
+        ppc_v3_pate_t pate;
+
+        if (!ppc64_v3_get_pate(cpu, cpu->env.spr[SPR_LPIDR], &pate)) {
+            return 0;
+        }
+        base = pate.dw0;
+    } else {
+        base = cpu->env.spr[SPR_SDR1];
+    }
+    return (1ULL << ((base & SDR_64_HTABSIZE) + 18 - 7)) - 1;
+}
+
 const ppc_hash_pte64_t *ppc_hash64_map_hptes(PowerPCCPU *cpu,
                                              hwaddr ptex, int n)
 {
@@ -516,9 +558,7 @@ const ppc_hash_pte64_t *ppc_hash64_map_hptes(PowerPCCPU *cpu,
     const ppc_hash_pte64_t *hptes;
 
     if (cpu->vhyp) {
-        PPCVirtualHypervisorClass *vhc =
-            PPC_VIRTUAL_HYPERVISOR_GET_CLASS(cpu->vhyp);
-        return vhc->map_hptes(cpu->vhyp, ptex, n);
+        return cpu->vhyp_class->map_hptes(cpu->vhyp, ptex, n);
     }
     base = ppc_hash64_hpt_base(cpu);
 
@@ -538,14 +578,21 @@ void ppc_hash64_unmap_hptes(PowerPCCPU *cpu, const ppc_hash_pte64_t *hptes,
                             hwaddr ptex, int n)
 {
     if (cpu->vhyp) {
-        PPCVirtualHypervisorClass *vhc =
-            PPC_VIRTUAL_HYPERVISOR_GET_CLASS(cpu->vhyp);
-        vhc->unmap_hptes(cpu->vhyp, hptes, ptex, n);
+        cpu->vhyp_class->unmap_hptes(cpu->vhyp, hptes, ptex, n);
         return;
     }
 
     address_space_unmap(CPU(cpu)->as, (void *)hptes, n * HASH_PTE_SIZE_64,
                         false, n * HASH_PTE_SIZE_64);
+}
+
+bool ppc_hash64_valid_ptex(PowerPCCPU *cpu, target_ulong ptex)
+{
+    /* hash value/pteg group index is normalized by HPT mask */
+    if (((ptex & ~7ULL) / HPTES_PER_GROUP) & ~ppc_hash64_hpt_mask(cpu)) {
+        return false;
+    }
+    return true;
 }
 
 static unsigned hpte_page_shift(const PPCHash64SegmentPageSizes *sps,
@@ -820,9 +867,7 @@ static void ppc_hash64_set_r(PowerPCCPU *cpu, hwaddr ptex, uint64_t pte1)
     hwaddr base, offset = ptex * HASH_PTE_SIZE_64 + HPTE64_DW1_R;
 
     if (cpu->vhyp) {
-        PPCVirtualHypervisorClass *vhc =
-            PPC_VIRTUAL_HYPERVISOR_GET_CLASS(cpu->vhyp);
-        vhc->hpte_set_r(cpu->vhyp, ptex, pte1);
+        cpu->vhyp_class->hpte_set_r(cpu->vhyp, ptex, pte1);
         return;
     }
     base = ppc_hash64_hpt_base(cpu);
@@ -837,9 +882,7 @@ static void ppc_hash64_set_c(PowerPCCPU *cpu, hwaddr ptex, uint64_t pte1)
     hwaddr base, offset = ptex * HASH_PTE_SIZE_64 + HPTE64_DW1_C;
 
     if (cpu->vhyp) {
-        PPCVirtualHypervisorClass *vhc =
-            PPC_VIRTUAL_HYPERVISOR_GET_CLASS(cpu->vhyp);
-        vhc->hpte_set_c(cpu->vhyp, ptex, pte1);
+        cpu->vhyp_class->hpte_set_c(cpu->vhyp, ptex, pte1);
         return;
     }
     base = ppc_hash64_hpt_base(cpu);
@@ -950,6 +993,7 @@ bool ppc_hash64_xlate(PowerPCCPU *cpu, vaddr eaddr, MMUAccessType access_type,
     int exec_prot, pp_prot, amr_prot, prot;
     int need_prot;
     hwaddr raddr;
+    bool vrma = false;
 
     /*
      * Note on LPCR usage: 970 uses HID4, but our special variant of
@@ -979,6 +1023,7 @@ bool ppc_hash64_xlate(PowerPCCPU *cpu, vaddr eaddr, MMUAccessType access_type,
             }
         } else if (ppc_hash64_use_vrma(env)) {
             /* Emulated VRMA mode */
+            vrma = true;
             slb = &vrma_slbe;
             if (build_vrma_slbe(cpu, slb) != 0) {
                 /* Invalid VRMA setup, machine check */
@@ -1093,10 +1138,15 @@ bool ppc_hash64_xlate(PowerPCCPU *cpu, vaddr eaddr, MMUAccessType access_type,
 
     exec_prot = ppc_hash64_pte_noexec_guard(cpu, pte);
     pp_prot = ppc_hash64_pte_prot(mmu_idx, slb, pte);
-    amr_prot = ppc_hash64_amr_prot(cpu, pte);
+    if (vrma) {
+        /* VRMA does not check keys */
+        amr_prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
+    } else {
+        amr_prot = ppc_hash64_amr_prot(cpu, pte);
+    }
     prot = exec_prot & pp_prot & amr_prot;
 
-    need_prot = prot_for_access_type(access_type);
+    need_prot = check_prot_access_type(PAGE_RWX, access_type);
     if (need_prot & ~prot) {
         /* Access right violation */
         qemu_log_mask(CPU_LOG_MMU, "PTE access rejected\n");
@@ -1187,7 +1237,7 @@ void ppc_hash64_init(PowerPCCPU *cpu)
         return;
     }
 
-    cpu->hash64_opts = g_memdup(pcc->hash64_opts, sizeof(*cpu->hash64_opts));
+    cpu->hash64_opts = g_memdup2(pcc->hash64_opts, sizeof(*cpu->hash64_opts));
 }
 
 void ppc_hash64_finalize(PowerPCCPU *cpu)

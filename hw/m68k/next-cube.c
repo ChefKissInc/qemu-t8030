@@ -404,7 +404,7 @@ static void next_scr_writefn(void *opaque, hwaddr addr, uint64_t val,
 
     switch (addr) {
     case 0x14108:
-        DPRINTF("FDCSR Write: %x\n", value);
+        DPRINTF("FDCSR Write: %"PRIx64 "\n", val);
         if (val == 0x0) {
             /* qemu_irq_raise(s->fd_irq[0]); */
         }
@@ -468,15 +468,15 @@ static void next_scr_writefn(void *opaque, hwaddr addr, uint64_t val,
             /* int_mask |= 0x1000; */
             /* s->scsi_csr_1 |= 0x80; */
         }
-        DPRINTF("SCSICSR Write: %x\n", val);
+        DPRINTF("SCSICSR Write: %"PRIx64 "\n", val);
         /* s->scsi_csr_1 = val; */
         break;
 
     /* Hardware timer latch - not implemented yet */
     case 0x1a000:
     default:
-        DPRINTF("BMAP Write @ 0x%x with 0x%x size %u\n", (unsigned int)addr,
-                val, size);
+        DPRINTF("BMAP Write @ 0x%x with 0x%"PRIx64 " size %u\n",
+                (unsigned int)addr, val, size);
     }
 }
 
@@ -585,7 +585,7 @@ static void next_dma_write(void *opaque, hwaddr addr, uint64_t val,
         break;
 
     default:
-        DPRINTF("DMA write @ %x w/ %x\n", (unsigned)addr, (unsigned)value);
+        DPRINTF("DMA write @ %x w/ %x\n", (unsigned)addr, (unsigned)val);
     }
 }
 
@@ -828,7 +828,7 @@ static void nextscsi_write(void *opaque, uint8_t *buf, int size)
     nextdma_write(opaque, buf, size, NEXTDMA_SCSI);
 }
 
-static void next_scsi_init(DeviceState *pcdev, M68kCPU *cpu)
+static void next_scsi_init(DeviceState *pcdev)
 {
     struct NeXTPC *next_pc = NEXT_PC(pcdev);
     DeviceState *dev;
@@ -959,7 +959,7 @@ static void next_pc_class_init(ObjectClass *klass, void *data)
 
     dc->desc = "NeXT Peripheral Controller";
     dc->realize = next_pc_realize;
-    dc->reset = next_pc_reset;
+    device_class_set_legacy_reset(dc, next_pc_reset);
     device_class_set_props(dc, next_pc_properties);
     dc->vmsd = &next_pc_vmstate;
 }
@@ -1036,7 +1036,7 @@ static void next_cube_init(MachineState *machine)
         /* Initial PC is always at offset 4 in firmware binaries */
         ptr = rom_ptr(0x01000004, 4);
         g_assert(ptr != NULL);
-        env->pc = ldl_p(ptr);
+        env->pc = ldl_be_p(ptr);
         if (env->pc >= 0x01020000) {
             error_report("'%s' does not seem to be a valid firmware image.",
                          bios_name);
@@ -1050,7 +1050,7 @@ static void next_cube_init(MachineState *machine)
     /* TODO: */
     /* Network */
     /* SCSI */
-    next_scsi_init(pcdev, cpu);
+    next_scsi_init(pcdev);
 
     /* DMA */
     memory_region_init_io(&m->dmamem, NULL, &next_dma_ops, machine,

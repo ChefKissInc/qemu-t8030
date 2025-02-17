@@ -1,0 +1,4 @@
+# sep.c
+
+apple_sep_iop_start(const char *role) "%s"
+apple_sep_iop_wakeup(const char *role) "%s"

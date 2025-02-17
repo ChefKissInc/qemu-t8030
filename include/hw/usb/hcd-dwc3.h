@@ -47,7 +47,7 @@ typedef struct DWC3TRB {
     union {
         uint32_t status;
         struct QEMU_PACKED {
-            uint32_t size : 23;
+            uint32_t size : 24;
             uint32_t pcm : 2;
             uint32_t reserved27_26 : 2;
             uint32_t trbsts : 4;

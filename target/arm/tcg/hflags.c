@@ -299,8 +299,6 @@ static CPUARMTBFlags rebuild_hflags_a64(CPUARMState *env, int el, int fp_el,
         switch (mmu_idx) {
         case ARMMMUIdx_E10_1:
         case ARMMMUIdx_E10_1_PAN:
-        case ARMMMUIdx_GE10_1:
-        case ARMMMUIdx_GE10_1_PAN:
             /* FEAT_NV: NV,NV1 == 1,1 means we don't do UNPRIV accesses */
             if ((hcr & (HCR_NV | HCR_NV1)) != (HCR_NV | HCR_NV1)) {
                 DP_TBFLAG_A64(flags, UNPRIV, 1);
@@ -308,8 +306,6 @@ static CPUARMTBFlags rebuild_hflags_a64(CPUARMState *env, int el, int fp_el,
             break;
         case ARMMMUIdx_E20_2:
         case ARMMMUIdx_E20_2_PAN:
-        case ARMMMUIdx_GE20_2:
-        case ARMMMUIdx_GE20_2_PAN:
             /*
              * Note that EL20_2 is gated by HCR_EL2.E2H == 1, but EL20_0 is
              * gated by HCR_EL2.<E2H,TGE> == '11', and so is LDTR.

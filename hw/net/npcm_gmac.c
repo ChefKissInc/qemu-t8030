@@ -546,9 +546,8 @@ static void gmac_try_send_next_packet(NPCMGMACState *gmac)
 
         /* 1 = DMA Owned, 0 = Software Owned */
         if (!(tx_desc.tdes0 & TX_DESC_TDES0_OWN)) {
-            qemu_log_mask(LOG_GUEST_ERROR,
-                          "TX Descriptor @ 0x%x is owned by software\n",
-                          desc_addr);
+            trace_npcm_gmac_tx_desc_owner(DEVICE(gmac)->canonical_path,
+                                          desc_addr);
             gmac->regs[R_NPCM_DMA_STATUS] |= NPCM_DMA_STATUS_TU;
             gmac_dma_set_state(gmac, NPCM_DMA_STATUS_TX_PROCESS_STATE_SHIFT,
                 NPCM_DMA_STATUS_TX_SUSPENDED_STATE);
@@ -926,7 +925,7 @@ static void npcm_gmac_class_init(ObjectClass *klass, void *data)
     dc->desc = "NPCM GMAC Controller";
     dc->realize = npcm_gmac_realize;
     dc->unrealize = npcm_gmac_unrealize;
-    dc->reset = npcm_gmac_reset;
+    device_class_set_legacy_reset(dc, npcm_gmac_reset);
     dc->vmsd = &vmstate_npcm_gmac;
     device_class_set_props(dc, npcm_gmac_properties);
 }

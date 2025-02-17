@@ -3,8 +3,8 @@
  *
  * Copyright (c) 2019 Jonathan Afek <jonyafek@me.com>
  * Copyright (c) 2021 Nguyen Hoang Trung (TrungNguyen1909)
- * Copyright (c) 2023-2024 Visual Ehrmanntraut (VisualEhrmanntraut).
- * Copyright (c) 2023 Christian Inci (chris-pcguy).
+ * Copyright (c) 2023-2025 Visual Ehrmanntraut (VisualEhrmanntraut).
+ * Copyright (c) 2023-2025 Christian Inci (chris-pcguy).
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -45,11 +45,19 @@ static const char *KEEP_COMP[] = {
     "arm-io,s8000\0$",
     "arm-io,t8030\0$",
     "atc-phy,t8030\0atc-phy,t8027\0$",
+    "backlight\0$",
+    "backlight,lm3539\0$",
+#ifdef ENABLE_BASEBAND
     "baseband,i19\0$",
+#endif
+#ifdef ENABLE_SEP_SECURITY
+    "biosensor,pearl\0$",
+#endif
     "buttons\0$",
     // "dart,s8000\0dart,s5l8960x\0$",
     "dart,t8020\0$",
     "disp0,t8030\0$",
+    "gen-mt-decider\0$",
     "gpio,s8000\0gpio,s5l8960x\0$",
     "gpio,t8015\0gpio,s5l8960x\0$",
     "gpio,t8030\0gpio,s5l8960x\0$",
@@ -69,11 +77,12 @@ static const char *KEEP_COMP[] = {
     "otgphyctrl,s8000\0otgphyctrl,s5l8960x\0$",
     "pmgr1,s8000\0$",
     "pmgr1,t8030\0$",
-    "pmu,d2255\0$",
+    "pmu,d2255\0$", // problematic on S8000 (if AIC configed for T8030?)
     "pmu,spmi\0pmu,avus\0$",
     "roswell\0$",
     "sart,coastguard\0$",
     "sart,t8030\0$",
+    "sacm,1\0$",
     "sio-dma-controller\0$",
     "smc-pmu\0$",
     "smc-tempsensor\0$",
@@ -93,19 +102,62 @@ static const char *KEEP_COMP[] = {
 };
 
 static const char *REM_NAMES[] = {
-    "aop-gpio\0$",    "backlight\0$",      "dart-ane\0$",         "dart-aop\0$",
-    "dart-apcie2\0$", "dart-apcie3\0$",    "dart-avd\0$",         "dart-ave\0$",
-    "dart-isp\0$",    "dart-jpeg0\0$",     "dart-jpeg1\0$",       "dart-pmp\0$",
-    "dart-rsm\0$",    "dart-scaler\0$",    "dockchannel-uart\0$", "dotara\0$",
-    "pmp\0$",         "stockholm-spmi\0$",
+    "gfx-asc\0$",
+    "smc-aop\0$",
+    "amfm\0$",
+    "dart-ane\0$",
+    "dart-aop\0$",
+    "dart-apcie2\0$",
+    "dart-apcie3\0$",
+    "dart-avd\0$",
+    "dart-ave\0$",
+    "dart-isp\0$",
+    "dart-jpeg0\0$",
+    "dart-jpeg1\0$",
+    "dart-pmp\0$",
+    "dart-rsm\0$",
+    "dart-scaler\0$",
+    "dockchannel-uart\0$",
+    "dotara\0$",
+    "pmp\0$",
+    "stockholm-spmi\0$",
+#ifndef ENABLE_BASEBAND
+    "baseband\0$",
+    "baseband-spmi\0$",
+    "baseband-vol\0$",
+    "pci-bridge3\0$",
+    "dart-apcie3\0$",
+#endif
+#ifndef ENABLE_SEP
+    "sep\0$",
+    "dart-sep\0$",
+    "xart-vol\0$",
+    "pearl-sep\0$",
+    "isp\0$",
+    "xART\0$",
+#endif
+#ifndef ENABLE_SEP_SECURITY // necessary?
+    "pearl-sep\0$",
+    "isp\0$",
+    "Lynx\0$",
+#endif
 };
 
 static const char *REM_DEV_TYPES[] = {
-    "aop\0$", "backlight\0$", "bluetooth\0$", "pmp\0$", "wlan\0$",
+    "bluetooth\0$",     "wlan\0$",          "aop\0$", "pmp\0$",
+#ifndef ENABLE_BASEBAND
+    "baseband\0$",      "baseband-spmi\0$",
+#endif
+#ifndef ENABLE_SEP_SECURITY // necessary?
+    "spherecontrol\0$",
+#endif
 };
 
 static const char *REM_PROPS[] = {
+#ifndef ENABLE_SEP_SECURITY
     "content-protect",
+    "encryptable",
+#endif
     "function-brick_id_voltage",
     "function-dock_parent",
     "function-error_handler",
@@ -121,6 +173,22 @@ static const char *REM_PROPS[] = {
     "nvme-coastguard",
     "pmp",
     "soc-tuning",
+#ifndef ENABLE_BASEBAND
+    "baseband-chipset",
+    "has-baseband",
+    "event_name-gpio9",
+    "gps-capable",
+    "location-reminders",
+    "personal-hotspot",
+    "bitrate-3g",
+    "bitrate-lte",
+    "bitrate-2g",
+    "navigation",
+#endif
+#ifndef ENABLE_SEP_SECURITY // necessary?
+    "pearl-camera",
+    "face-detection-support",
+#endif
 };
 
 static void allocate_and_copy(MemoryRegion *mem, AddressSpace *as,
@@ -157,15 +225,14 @@ static void macho_dtb_node_process(DTBNode *node, DTBNode *parent)
     uint64_t count;
     uint64_t i;
     bool found;
-    int cnt;
 
-    prop = find_dtb_prop(node, "compatible");
+    prop = dtb_find_prop(node, "compatible");
     if (prop != NULL) {
-        g_assert_nonnull(prop->value);
+        g_assert_nonnull(prop->data);
         found = false;
         for (count = sizeof(KEEP_COMP) / sizeof(KEEP_COMP[0]), i = 0; i < count;
              i++) {
-            if (memcmp(prop->value, KEEP_COMP[i],
+            if (memcmp(prop->data, KEEP_COMP[i],
                        MIN(prop->length, sstrlen(KEEP_COMP[i]))) == 0) {
                 found = true;
                 break;
@@ -173,34 +240,37 @@ static void macho_dtb_node_process(DTBNode *node, DTBNode *parent)
         }
         if (!found) {
             g_assert_nonnull(parent);
-            remove_dtb_node(parent, node);
+            info_report("Removing node %s because its compatible property %s "
+                        "is not in the whitelist",
+                        dtb_find_prop(node, "name")->data, prop->data);
+            dtb_remove_node(parent, node);
             return;
         }
     }
 
-    prop = find_dtb_prop(node, "name");
+    prop = dtb_find_prop(node, "name");
     if (prop != NULL) {
-        g_assert_nonnull(prop->value);
+        g_assert_nonnull(prop->data);
         for (count = sizeof(REM_NAMES) / sizeof(REM_NAMES[0]), i = 0; i < count;
              i++) {
             uint64_t size = MIN(prop->length, sstrlen(REM_NAMES[i]));
-            if (memcmp(prop->value, REM_NAMES[i], size) == 0) {
+            if (memcmp(prop->data, REM_NAMES[i], size) == 0) {
                 g_assert_nonnull(parent);
-                remove_dtb_node(parent, node);
+                dtb_remove_node(parent, node);
                 return;
             }
         }
     }
 
-    prop = find_dtb_prop(node, "device_type");
+    prop = dtb_find_prop(node, "device_type");
     if (prop != NULL) {
-        g_assert_nonnull(prop->value);
+        g_assert_nonnull(prop->data);
         for (count = sizeof(REM_DEV_TYPES) / sizeof(REM_DEV_TYPES[0]), i = 0;
              i < count; i++) {
             uint64_t size = MIN(prop->length, sstrlen(REM_DEV_TYPES[i]));
-            if (memcmp(prop->value, REM_DEV_TYPES[i], size) == 0) {
+            if (memcmp(prop->data, REM_DEV_TYPES[i], size) == 0) {
                 g_assert_nonnull(parent);
-                remove_dtb_node(parent, node);
+                dtb_remove_node(parent, node);
                 return;
             }
         }
@@ -208,23 +278,16 @@ static void macho_dtb_node_process(DTBNode *node, DTBNode *parent)
 
     for (count = sizeof(REM_PROPS) / sizeof(REM_PROPS[0]), i = 0; i < count;
          i++) {
-        prop = find_dtb_prop(node, REM_PROPS[i]);
-        if (prop != NULL) {
-            remove_dtb_prop(node, prop);
-        }
+        dtb_remove_prop_named(node, REM_PROPS[i]);
     }
 
-    cnt = node->child_node_count;
-    for (iter = node->child_nodes; iter != NULL;) {
+    for (iter = node->children; iter != NULL;) {
         child = (DTBNode *)iter->data;
 
         // iter might be invalidated by macho_dtb_node_process
         iter = iter->next;
         macho_dtb_node_process(child, node);
-        cnt--;
     }
-
-    g_assert_cmpuint(cnt, ==, 0);
 }
 
 /*
@@ -235,7 +298,7 @@ static void extract_im4p_payload(const char *filename, char *payload_type,
                                  uint8_t **secure_monitor)
 {
     uint8_t *file_data;
-    unsigned long fsize;
+    gsize fsize;
     char errorDescription[ASN1_MAX_ERROR_DESCRIPTION_SIZE];
     asn1_node img4_definitions = NULL;
     asn1_node img4;
@@ -246,21 +309,19 @@ static void extract_im4p_payload(const char *filename, char *payload_type,
     uint8_t *payload_data;
 
     if (!g_file_get_contents(filename, (gchar **)&file_data, &fsize, NULL)) {
-        error_report("Could not load data from file '%s'", filename);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal, "file read for `%s` failed", filename);
     }
 
     if (asn1_array2tree(img4_definitions_array, &img4_definitions,
                         errorDescription) != ASN1_SUCCESS) {
-        error_report("Could not initialize the ASN.1 parser: %s.",
-                     errorDescription);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal, "ASN.1 parser initialisation failed: `%s`.",
+                   errorDescription);
     }
 
     ret = asn1_create_element(img4_definitions, "Img4.Img4Payload", &img4);
     if (ret != ASN1_SUCCESS) {
-        error_report("Could not create an Img4Payload element: %d", ret);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal, "Img4Payload element creation failed: %d",
+                   ret);
     }
 
     ret =
@@ -278,41 +339,35 @@ static void extract_im4p_payload(const char *filename, char *payload_type,
     len = 4;
     ret = asn1_read_value(img4, "magic", magic, &len);
     if (ret != ASN1_SUCCESS) {
-        error_report("Failed to read the im4p magic in file '%s': %d.",
-                     filename, ret);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal, "im4p magic read for `%s` failed: %d.",
+                   filename, ret);
     }
 
     if (strncmp(magic, "IM4P", 4) != 0) {
-        error_report("Couldn't parse ASN.1 data in file '%s' because it "
-                     "does not start with the IM4P header.",
-                     filename);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal, "`%s` is not an img4 payload.", filename);
     }
 
     len = 4;
     ret = asn1_read_value(img4, "type", payload_type, &len);
     if (ret != ASN1_SUCCESS) {
-        error_report("Failed to read the im4p type in file '%s': %d.", filename,
-                     ret);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal, "img4 payload type read for `%s` failed: %d.",
+                   filename, ret);
     }
 
     len = 128;
     ret = asn1_read_value(img4, "description", description, &len);
     if (ret != ASN1_SUCCESS) {
-        error_report("Failed to read the im4p description in file '%s': %d.",
-                     filename, ret);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal,
+                   "img4 payload description read for `%s` failed: %d.",
+                   filename, ret);
     }
 
     payload_data = NULL;
     len = 0;
     ret = asn1_read_value(img4, "data", payload_data, &len);
     if (ret != ASN1_MEM_ERROR) {
-        error_report("Failed to read the im4p payload in file '%s': %d.",
-                     filename, ret);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal, "img4 payload size read for `%s` failed: %d.",
+                   filename, ret);
     }
 
     payload_data = g_malloc0(len);
@@ -320,9 +375,8 @@ static void extract_im4p_payload(const char *filename, char *payload_type,
     g_free(file_data);
 
     if (ret != ASN1_SUCCESS) {
-        error_report("Failed to read the im4p payload in file '%s': %d.",
-                     filename, ret);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal, "img4 payload read for `%s` failed: %d.",
+                   filename, ret);
     }
 
     asn1_delete_structure(&img4);
@@ -337,11 +391,10 @@ static void extract_im4p_payload(const char *filename, char *payload_type,
         g_free(payload_data);
 
         if (decoded_length == 0 || decoded_length == decode_buffer_size) {
-            error_report(
-                "Could not decompress LZFSE-compressed data in file '%s' "
-                "because the decode buffer was too small.",
+            error_setg(
+                &error_fatal,
+                "LZFSE decompression for `%s` failed; insufficient buffer size",
                 filename);
-            exit(EXIT_FAILURE);
         }
 
         *data = decode_buffer;
@@ -357,10 +410,8 @@ static void extract_im4p_payload(const char *filename, char *payload_type,
         int decoded_length =
             decompress_lzss(decode_buffer, comp_hdr->data, compressed_size);
         if (decoded_length == 0 || decoded_length != uncompressed_size) {
-            error_report("Could not decompress LZSS-compressed data in "
-                         "file '%s' correctly.",
-                         filename);
-            exit(EXIT_FAILURE);
+            error_setg(&error_fatal, "LZSS decompression for `%s` failed.",
+                       filename);
         }
 
         size_t monitor_off = compressed_size + sizeof(LzssCompHeader);
@@ -394,13 +445,11 @@ DTBNode *load_dtb_from_file(char *filename)
 
     if (strncmp(payload_type, "dtre", 4) != 0 &&
         strncmp(payload_type, "raw", 4) != 0) {
-        error_report("Couldn't parse ASN.1 data in file '%s' because it is not "
-                     "a 'dtre' object, found '%.4s' object.",
-                     filename, payload_type);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal, "`%s` is a `%.4s` object (expected `dtre`)",
+                   filename, payload_type);
     }
 
-    root = load_dtb(file_data);
+    root = dtb_deserialise(file_data);
     g_free(file_data);
     return root;
 }
@@ -409,57 +458,65 @@ void macho_populate_dtb(DTBNode *root, AppleBootInfo *info)
 {
     DTBNode *child;
     DTBProp *prop;
-    uint32_t data;
     uint64_t memmap[2] = { 0 };
 
-    child = get_dtb_node(root, "chosen");
+    child = dtb_get_node(root, "chosen");
     g_assert_nonnull(child);
-    prop = find_dtb_prop(child, "random-seed");
-    g_assert_nonnull(prop);
-    qemu_guest_getrandom_nofail(prop->value, prop->length);
 
-    set_dtb_prop(child, "dram-base", 8, &info->dram_base);
-    set_dtb_prop(child, "dram-size", 8, &info->dram_size);
-    set_dtb_prop(child, "firmware-version", 28, "ChefKiss QEMU Apple Silicon");
+#ifndef ENABLE_SEP_SECURITY
+    dtb_set_prop_u32(child, "protected-data-access", 0);
+#endif
+
+    prop = dtb_find_prop(child, "random-seed");
+    g_assert_nonnull(prop);
+    qemu_guest_getrandom_nofail(prop->data, prop->length);
+
+    dtb_set_prop_hwaddr(child, "dram-base", info->dram_base);
+    dtb_set_prop_hwaddr(child, "dram-size", info->dram_size);
+    dtb_set_prop(child, "firmware-version", 28, "ChefKiss QEMU Apple Silicon");
 
     if (info->nvram_size > XNU_MAX_NVRAM_SIZE) {
-        warn_report("NVRAM size is larger than expected. (%llX vs %X)",
+        warn_report("NVRAM size is larger than expected. (0x%" PRIx32 " vs %X)",
                     info->nvram_size, XNU_MAX_NVRAM_SIZE);
         info->nvram_size = XNU_MAX_NVRAM_SIZE;
     }
-    set_dtb_prop(child, "nvram-total-size", 4, &info->nvram_size);
-    set_dtb_prop(child, "nvram-bank-size", 4, &info->nvram_size);
-    set_dtb_prop(child, "nvram-proxy-data", info->nvram_size, info->nvram_data);
+    dtb_set_prop_u32(child, "nvram-total-size", info->nvram_size);
+    dtb_set_prop_u32(child, "nvram-bank-size", info->nvram_size);
+    dtb_set_prop(child, "nvram-proxy-data", info->nvram_size, info->nvram_data);
 
-    data = 1;
-    set_dtb_prop(child, "research-enabled", sizeof(data), &data);
-    prop = set_dtb_prop(child, "effective-production-status-ap", sizeof(data),
-                        &data);
+    // dtb_set_prop_u32(child, "research-enabled", 1);
+    dtb_set_prop_u32(child, "effective-production-status-ap", 1);
+    dtb_set_prop_u32(child, "effective-security-mode-ap", 1);
+    dtb_set_prop_u32(child, "security-domain", 1);
+    dtb_set_prop_u32(child, "chip-epoch", 1);
+    // dtb_set_prop_u32(child, "debug-enabled", 1);
 
-    set_dtb_prop(child, "security-domain", sizeof(data), &data);
-    set_dtb_prop(child, "chip-epoch", sizeof(data), &data);
-    set_dtb_prop(child, "amfi-allows-trust-cache-load", sizeof(data), &data);
-    // data = 1;
-    // set_dtb_prop(child, "debug-enabled", sizeof(data), &data);
-    data = 0;
-    prop = set_dtb_prop(child, "protected-data-access", sizeof(data), &data);
+    child = dtb_get_node(root, "defaults");
+    g_assert_nonnull(child);
+#ifndef ENABLE_SEP_SECURITY
+    dtb_set_prop_null(child, "no-effaceable-storage");
+#endif
 
-    child = get_dtb_node(root, "chosen/manifest-properties");
-    set_dtb_prop(child, "BNCH", sizeof(info->boot_nonce_hash),
+    child = dtb_get_node(root, "chosen/manifest-properties");
+    dtb_set_prop(child, "BNCH", sizeof(info->boot_nonce_hash),
                  info->boot_nonce_hash);
+
+    child = dtb_get_node(root, "product");
+    g_assert_nonnull(child);
+    dtb_set_prop_u32(child, "allow-hactivation", 1);
 
     macho_dtb_node_process(root, NULL);
 
-    child = get_dtb_node(root, "chosen/memory-map");
+    child = dtb_get_node(root, "chosen/memory-map");
     g_assert_nonnull(child);
 
-    set_dtb_prop(child, "RAMDisk", sizeof(memmap), memmap);
-    set_dtb_prop(child, "TrustCache", sizeof(memmap), memmap);
-    set_dtb_prop(child, "SEPFW", sizeof(memmap), memmap);
-    set_dtb_prop(child, "BootArgs", sizeof(memmap), &memmap);
-    set_dtb_prop(child, "DeviceTree", sizeof(memmap), &memmap);
+    dtb_set_prop(child, "RAMDisk", sizeof(memmap), memmap);
+    dtb_set_prop(child, "TrustCache", sizeof(memmap), memmap);
+    dtb_set_prop(child, "SEPFW", sizeof(memmap), memmap);
+    dtb_set_prop(child, "BootArgs", sizeof(memmap), &memmap);
+    dtb_set_prop(child, "DeviceTree", sizeof(memmap), &memmap);
 
-    info->device_tree_size = align_16k_high(get_dtb_node_buffer_size(root));
+    info->device_tree_size = ROUND_UP_16K(dtb_get_serialised_node_size(root));
 }
 
 static void set_memory_range(DTBNode *root, const char *name, uint64_t addr,
@@ -471,28 +528,24 @@ static void set_memory_range(DTBNode *root, const char *name, uint64_t addr,
     g_assert_cmphex(addr, !=, 0);
     g_assert_cmpuint(size, !=, 0);
 
-    child = get_dtb_node(root, "chosen/memory-map");
+    child = dtb_get_node(root, "chosen/memory-map");
     g_assert_nonnull(child);
 
-    prop = find_dtb_prop(child, name);
+    prop = dtb_find_prop(child, name);
     g_assert_nonnull(prop);
 
-    ((uint64_t *)prop->value)[0] = addr;
-    ((uint64_t *)prop->value)[1] = size;
+    ((uint64_t *)prop->data)[0] = addr;
+    ((uint64_t *)prop->data)[1] = size;
 }
 
 static void remove_memory_range(DTBNode *root, const char *name)
 {
     DTBNode *child;
-    DTBProp *prop;
 
-    child = get_dtb_node(root, "chosen/memory-map");
+    child = dtb_get_node(root, "chosen/memory-map");
     g_assert_nonnull(child);
 
-    prop = find_dtb_prop(child, "DeviceTree");
-    if (prop != NULL) {
-        remove_dtb_prop(child, prop);
-    }
+    dtb_remove_prop_named(child, "DeviceTree");
 }
 
 static void set_or_remove_memory_range(DTBNode *root, const char *name,
@@ -522,36 +575,36 @@ void macho_load_dtb(DTBNode *root, AddressSpace *as, MemoryRegion *mem,
                      info->kern_boot_args_size);
 
     if (info->ticket_data && info->ticket_length) {
-        QCryptoHashAlgorithm alg = QCRYPTO_HASH_ALG_SHA1;
+        QCryptoHashAlgo alg = QCRYPTO_HASH_ALGO_SHA1;
         g_autofree uint8_t *hash = NULL;
         size_t hash_len = 0;
-        DTBNode *child = find_dtb_node(root, "chosen");
+        DTBNode *child = dtb_get_node(root, "chosen");
         DTBProp *prop = NULL;
         g_autofree Error *err = NULL;
-        prop = find_dtb_prop(child, "crypto-hash-method");
+        prop = dtb_find_prop(child, "crypto-hash-method");
 
-        if (prop) {
-            if (strcmp((char *)prop->value, "sha2-384") == 0) {
-                alg = QCRYPTO_HASH_ALG_SHA384;
+        if (prop != NULL) {
+            if (strcmp((char *)prop->data, "sha2-384") == 0) {
+                alg = QCRYPTO_HASH_ALGO_SHA384;
             }
         }
 
-        prop = find_dtb_prop(child, "boot-manifest-hash");
+        prop = dtb_find_prop(child, "boot-manifest-hash");
         g_assert_nonnull(prop);
 
         if (qcrypto_hash_bytes(alg, info->ticket_data, info->ticket_length,
                                &hash, &hash_len, &err) >= 0) {
             g_assert_cmpuint(hash_len, ==, prop->length);
-            memcpy(prop->value, hash, hash_len);
+            memcpy(prop->data, hash, hash_len);
         } else {
             error_report_err(err);
         }
     }
 
     g_assert_cmpuint(info->device_tree_size, >=,
-                     get_dtb_node_buffer_size(root));
+                     dtb_get_serialised_node_size(root));
     buf = g_malloc0(info->device_tree_size);
-    save_dtb(buf, root);
+    dtb_serialise(buf, root);
     allocate_and_copy(mem, as, name, info->device_tree_addr,
                       info->device_tree_size, buf);
 }
@@ -572,15 +625,14 @@ uint8_t *load_trustcache_from_file(const char *filename, uint64_t *size)
     if (strncmp(payload_type, "trst", 4) != 0 &&
         strncmp(payload_type, "rtsc", 4) != 0 &&
         strncmp(payload_type, "raw", 4) != 0) {
-        error_report("Couldn't parse ASN.1 data in file '%s' because it is not "
-                     "a 'trst' or 'rtsc' object, found '%.4s' object.",
-                     filename, payload_type);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal,
+                   "`%s` is a `%.4s` object (expected `trst`/`rtsc`).",
+                   filename, payload_type);
     }
 
     file_size = (unsigned long)length;
 
-    trustcache_size = align_16k_high(file_size + 8);
+    trustcache_size = ROUND_UP_16K(file_size + 8);
     trustcache_data = (uint32_t *)g_malloc(trustcache_size);
     trustcache_data[0] = 1; // #trustcaches
     trustcache_data[1] = 8; // offset
@@ -606,20 +658,17 @@ uint8_t *load_trustcache_from_file(const char *filename, uint64_t *size)
         trustcache_entry_size = 24;
         break;
     default:
-        error_report("The trust cache '%s' does not have a v1 or v2 header",
-                     filename);
-        exit(EXIT_FAILURE);
+        error_setg(
+            &error_fatal,
+            "invalid trustcache header in `%s` (expected v1 or v2, got %d)",
+            filename, trustcache_version);
+        break;
     }
 
-    expected_file_size =
-        24 /* header size */ + trustcache_entry_count * trustcache_entry_size;
+    // 24 is header size
+    expected_file_size = 24 + trustcache_entry_count * trustcache_entry_size;
 
-    if (file_size != expected_file_size) {
-        error_report("The expected size %d of trust cache '%s' does not match "
-                     "the actual size %ld",
-                     expected_file_size, filename, file_size);
-        exit(EXIT_FAILURE);
-    }
+    g_assert_cmpuint(file_size, ==, expected_file_size);
 
     *size = trustcache_size;
     return (uint8_t *)trustcache_data;
@@ -642,10 +691,8 @@ void macho_load_ramdisk(const char *filename, AddressSpace *as,
     extract_im4p_payload(filename, payload_type, &file_data, &length, NULL);
     if (strncmp(payload_type, "rdsk", 4) != 0 &&
         strncmp(payload_type, "raw", 4) != 0) {
-        error_report("Couldn't parse ASN.1 data in file '%s' because it is not "
-                     "a 'rdsk' object, found '%.4s' object.",
-                     filename, payload_type);
-        exit(EXIT_FAILURE);
+        error_setg(&error_fatal, "`%s` is a `%.4s` object (expected `rdsk`)",
+                   filename, payload_type);
     }
 
     file_size = length;
@@ -661,14 +708,14 @@ void macho_load_raw_file(const char *filename, AddressSpace *as,
                          uint64_t *size)
 {
     uint8_t *file_data = NULL;
-    unsigned long sizef;
+    gsize sizef;
 
     if (g_file_get_contents(filename, (char **)&file_data, &sizef, NULL)) {
         *size = sizef;
         allocate_and_copy(mem, as, name, file_pa, *size, file_data);
         g_free(file_data);
     } else {
-        abort();
+        error_setg(&error_fatal, "file read for `%s` failed", filename);
     }
 }
 
@@ -787,8 +834,7 @@ void macho_highest_lowest(MachoHeader64 *mh, uint64_t *lowaddr,
 
 void macho_text_base(MachoHeader64 *mh, uint64_t *base)
 {
-    MachoLoadCommand *cmd =
-        (MachoLoadCommand *)((uint8_t *)mh + sizeof(MachoHeader64));
+    MachoLoadCommand *cmd = (MachoLoadCommand *)(mh + 1);
     unsigned int index;
     *base = 0;
     for (index = 0; index < mh->n_cmds; index++) {
@@ -802,7 +848,6 @@ void macho_text_base(MachoHeader64 *mh, uint64_t *base)
             }
             break;
         }
-
         default:
             break;
         }
@@ -822,11 +867,9 @@ MachoHeader64 *macho_load_file(const char *filename,
                          (uint8_t **)secure_monitor);
 
     if (strncmp(payload_type, "krnl", 4) != 0 &&
-        strncmp(payload_type, "raw", 4) != 0) {
-        error_report("Couldn't parse ASN.1 data in file '%s' because it is not "
-                     "a 'krnl' object, found '%.4s' object.",
-                     filename, payload_type);
-        exit(EXIT_FAILURE);
+        strncmp(payload_type, "raw", 3) != 0) {
+        error_setg(&error_fatal, "`%s` is a `%.4s` object (expected `krnl`)",
+                   filename, payload_type);
     }
 
     mh = macho_parse(data, len);
@@ -845,11 +888,7 @@ MachoHeader64 *macho_parse(uint8_t *data, uint32_t len)
     int index;
 
     mh = (MachoHeader64 *)data;
-    if (mh->magic != MACH_MAGIC_64) {
-        error_report("%s: Invalid Mach-O object: mh->magic != MACH_MAGIC_64",
-                     __func__);
-        exit(EXIT_FAILURE);
-    }
+    g_assert_cmphex(mh->magic, ==, MACH_MAGIC_64);
 
     macho_highest_lowest(mh, &lowaddr, &highaddr);
     g_assert_cmphex(lowaddr, <, highaddr);
@@ -876,7 +915,6 @@ MachoHeader64 *macho_parse(uint8_t *data, uint32_t len)
                    data + segCmd->fileoff, segCmd->filesize);
             break;
         }
-
         default:
             break;
         }
@@ -1110,7 +1148,7 @@ void macho_allocate_segment_records(DTBNode *memory_map, MachoHeader64 *mh)
                 uint64_t paddr;
                 uint64_t length;
             } file_info = { 0 };
-            set_dtb_prop(memory_map, region_name, sizeof(file_info),
+            dtb_set_prop(memory_map, region_name, sizeof(file_info),
                          &file_info);
             break;
         }
@@ -1134,6 +1172,8 @@ hwaddr arm_load_macho(MachoHeader64 *mh, AddressSpace *as, MemoryRegion *mem,
     uint64_t virt_low, virt_high;
     macho_highest_lowest(mh, &virt_low, &virt_high);
     bool is_fileset = mh->file_type == MH_FILESET;
+    MachoHeader64 *mh2 = NULL;
+    void *load_from2 = NULL;
 
     cmd = (MachoLoadCommand *)(mh + 1);
     if (!is_fileset) {
@@ -1156,7 +1196,7 @@ hwaddr arm_load_macho(MachoHeader64 *mh, AddressSpace *as, MemoryRegion *mem,
                     uint64_t paddr;
                     uint64_t length;
                 } file_info = { load_to, segCmd->vmsize };
-                set_dtb_prop(memory_map, region_name, sizeof(file_info),
+                dtb_set_prop(memory_map, region_name, sizeof(file_info),
                              &file_info);
             } else {
                 snprintf(region_name, sizeof(region_name), "TZ1-%s",
@@ -1173,10 +1213,10 @@ hwaddr arm_load_macho(MachoHeader64 *mh, AddressSpace *as, MemoryRegion *mem,
                      sp = nextsect(sp)) {
                     if ((sp->flags & SECTION_TYPE) ==
                         S_NON_LAZY_SYMBOL_POINTERS) {
-                        void *load_from = (void *)(data + sp->addr - virt_low);
+                        load_from2 = (void *)(data + sp->addr - virt_low);
                         void **nl_symbol_ptr;
-                        for (nl_symbol_ptr = load_from;
-                             nl_symbol_ptr < (void **)(load_from + sp->size);
+                        for (nl_symbol_ptr = load_from2;
+                             nl_symbol_ptr < (void **)(load_from2 + sp->size);
                              nl_symbol_ptr++) {
                             *nl_symbol_ptr += virt_slide;
                         }
@@ -1186,11 +1226,11 @@ hwaddr arm_load_macho(MachoHeader64 *mh, AddressSpace *as, MemoryRegion *mem,
 
             if (!is_fileset) {
                 if (strcmp(segCmd->segname, "__TEXT") == 0) {
-                    MachoHeader64 *mh = load_from;
+                    mh2 = load_from;
                     MachoSegmentCommand64 *seg;
-                    g_assert_cmphex(mh->magic, ==, MACH_MAGIC_64);
-                    for (seg = macho_get_firstseg(mh); seg != NULL;
-                         seg = macho_get_nextseg(mh, seg)) {
+                    g_assert_cmphex(mh2->magic, ==, MACH_MAGIC_64);
+                    for (seg = macho_get_firstseg(mh2); seg != NULL;
+                         seg = macho_get_nextseg(mh2, seg)) {
                         MachoSection64 *sp;
                         seg->vmaddr += virt_slide;
                         for (sp = firstsect(seg); sp != endsect(seg);
@@ -1204,7 +1244,7 @@ hwaddr arm_load_macho(MachoHeader64 *mh, AddressSpace *as, MemoryRegion *mem,
 
 #if 0
             error_report(
-                "Loading %s to 0x%llx (filesize: 0x%llX vmsize: 0x%llX)",
+                "Loading %s to 0x%" PRIx64 " (filesize: 0x%" PRIx64 " vmsize: 0x%" PRIx64 ")",
                 region_name, load_to, segCmd->filesize, segCmd->vmsize);
 #endif
             uint8_t *buf = g_malloc0(segCmd->vmsize);
@@ -1215,10 +1255,11 @@ hwaddr arm_load_macho(MachoHeader64 *mh, AddressSpace *as, MemoryRegion *mem,
 
             if (!is_fileset) {
                 if (strcmp(segCmd->segname, "__TEXT") == 0) {
-                    MachoHeader64 *mh = load_from;
+                    mh2 = load_from;
                     MachoSegmentCommand64 *seg;
-                    for (seg = macho_get_firstseg(mh); seg != NULL;
-                         seg = macho_get_nextseg(mh, seg)) {
+                    g_assert_cmphex(mh2->magic, ==, MACH_MAGIC_64);
+                    for (seg = macho_get_firstseg(mh2); seg != NULL;
+                         seg = macho_get_nextseg(mh2, seg)) {
                         MachoSection64 *sp;
                         seg->vmaddr -= virt_slide;
                         for (sp = firstsect(seg); sp != endsect(seg);
@@ -1235,10 +1276,10 @@ hwaddr arm_load_macho(MachoHeader64 *mh, AddressSpace *as, MemoryRegion *mem,
                      sp = nextsect(sp)) {
                     if ((sp->flags & SECTION_TYPE) ==
                         S_NON_LAZY_SYMBOL_POINTERS) {
-                        void *load_from = (void *)(data + sp->addr - virt_low);
+                        load_from2 = (void *)(data + sp->addr - virt_low);
                         void **nl_symbol_ptr;
-                        for (nl_symbol_ptr = load_from;
-                             nl_symbol_ptr < (void **)(load_from + sp->size);
+                        for (nl_symbol_ptr = load_from2;
+                             nl_symbol_ptr < (void **)(load_from2 + sp->size);
                              nl_symbol_ptr++) {
                             *nl_symbol_ptr -= virt_slide;
                         }

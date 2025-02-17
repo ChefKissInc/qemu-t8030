@@ -3,9 +3,7 @@ ppc_ss.add(files(
   'ppc.c',
   'ppc_booke.c',
 ))
-ppc_ss.add(when: 'CONFIG_FDT_PPC', if_true: [files(
-  'fdt.c',
-), fdt])
+ppc_ss.add(when: 'CONFIG_FDT_PPC', if_true: files('fdt.c'))
 ppc_ss.add(when: 'CONFIG_FW_CFG_PPC', if_true: files('fw_cfg.c'))
 
 # IBM pSeries (sPAPR)
@@ -44,6 +42,7 @@ endif
 ppc_ss.add(when: 'CONFIG_POWERNV', if_true: files(
   'pnv.c',
   'pnv_xscom.c',
+  'pnv_adu.c',
   'pnv_core.c',
   'pnv_i2c.c',
   'pnv_lpc.c',

@@ -122,7 +122,7 @@ static void apple_i2c_reg_write(void *opaque, hwaddr addr, uint64_t data,
 
     switch (addr) {
     case REG_MTXFIFO: {
-        uint8_t addr = kMTXFIFOData(value) >> 1;
+        uint8_t i2c_addr = kMTXFIFOData(value) >> 1;
         iflg = true;
         if ((value & kMTXFIFOStart)) {
             if (kMTXFIFOData(value) & 1) {
@@ -130,9 +130,9 @@ static void apple_i2c_reg_write(void *opaque, hwaddr addr, uint64_t data,
             } else {
                 s->is_recv = false;
             }
-            if (i2c_start_transfer(s->bus, addr, s->is_recv) != 0) {
+            if (i2c_start_transfer(s->bus, i2c_addr, s->is_recv) != 0) {
                 qemu_log_mask(LOG_GUEST_ERROR, "%s: can't find device @ 0x%x\n",
-                              dev->id, addr);
+                              dev->id, i2c_addr);
                 REG(s, REG_SMSTA) |= kSMSTAmtn;
                 break;
             }
@@ -144,7 +144,7 @@ static void apple_i2c_reg_write(void *opaque, hwaddr addr, uint64_t data,
                 uint8_t len = kMTXFIFOData(value);
                 if (!s->is_recv) {
                     s->is_recv = 1;
-                    if (i2c_start_transfer(s->bus, addr, s->is_recv) != 0) {
+                    if (i2c_start_transfer(s->bus, i2c_addr, s->is_recv) != 0) {
                         REG(s, REG_SMSTA) |= kSMSTAmtn;
                         break;
                     }
@@ -161,7 +161,7 @@ static void apple_i2c_reg_write(void *opaque, hwaddr addr, uint64_t data,
             } else {
                 if (s->is_recv) {
                     s->is_recv = 0;
-                    if (i2c_start_transfer(s->bus, addr, s->is_recv) != 0) {
+                    if (i2c_start_transfer(s->bus, i2c_addr, s->is_recv) != 0) {
                         REG(s, REG_SMSTA) |= kSMSTAmtn;
                         break;
                     }
@@ -258,25 +258,25 @@ static void apple_i2c_reset_enter(Object *obj, ResetType type)
     fifo8_reset(&s->rx_fifo);
 }
 
-static void apple_i2c_reset_hold(Object *obj)
+static void apple_i2c_reset_hold(Object *obj, ResetType type)
 {
     AppleHWI2CClass *c = APPLE_I2C_GET_CLASS(obj);
     AppleI2CState *s = APPLE_I2C(obj);
 
-    if (c->parent_phases.hold) {
-        c->parent_phases.hold(obj);
+    if (c->parent_phases.hold != NULL) {
+        c->parent_phases.hold(obj, type);
     }
     qemu_set_irq(s->irq, 0);
     s->last_irq = 0;
 }
 
-static void apple_i2c_reset_exit(Object *obj)
+static void apple_i2c_reset_exit(Object *obj, ResetType type)
 {
     AppleHWI2CClass *c = APPLE_I2C_GET_CLASS(obj);
     AppleI2CState *s = APPLE_I2C(obj);
 
-    if (c->parent_phases.exit) {
-        c->parent_phases.exit(obj);
+    if (c->parent_phases.exit != NULL) {
+        c->parent_phases.exit(obj, type);
     }
 
     qemu_set_irq(s->sda, 1);

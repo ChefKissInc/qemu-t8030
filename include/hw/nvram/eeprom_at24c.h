@@ -9,6 +9,40 @@
 
 #include "hw/i2c/i2c.h"
 
+#define TYPE_AT24C_EE "at24c-eeprom"
+typedef struct EEPROMState EEPROMState;
+DECLARE_INSTANCE_CHECKER(EEPROMState, AT24C_EE,
+                         TYPE_AT24C_EE)
+
+struct EEPROMState {
+    I2CSlave parent_obj;
+
+    /* address counter */
+    //uint16_t cur;
+    uint32_t cur;
+    /* total size in bytes */
+    uint32_t rsize;
+    /*
+     * address byte number
+     *  for  24c01, 24c02 size <= 256 byte, use only 1 byte
+     *  otherwise size > 256, use 2 byte
+     */
+    uint8_t asize;
+
+    bool writable;
+    /* cells changed since last START? */
+    bool changed;
+    /* during WRITE, # of address bytes transfered */
+    uint8_t haveaddr;
+
+    uint8_t *mem;
+
+    BlockBackend *blk;
+
+    const uint8_t *init_rom;
+    uint32_t init_rom_size;
+};
+
 /*
  * Create and realize an AT24C EEPROM device on the heap.
  * @bus: I2C bus to put it on
@@ -36,4 +70,6 @@ I2CSlave *at24c_eeprom_init(I2CBus *bus, uint8_t address, uint32_t rom_size);
 I2CSlave *at24c_eeprom_init_rom(I2CBus *bus, uint8_t address, uint32_t rom_size,
                                 const uint8_t *init_rom, uint32_t init_rom_size);
 
+I2CSlave *at24c_eeprom_init_rom_blk(I2CBus *bus, uint8_t address, uint32_t rom_size,
+                                const uint8_t *init_rom, uint32_t init_rom_size, uint32_t address_size, BlockBackend *blk);
 #endif

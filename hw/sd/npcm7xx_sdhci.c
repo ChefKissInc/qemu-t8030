@@ -16,6 +16,7 @@
 
 #include "qemu/osdep.h"
 
+#include "hw/sd/sdhci.h"
 #include "hw/sd/npcm7xx_sdhci.h"
 #include "migration/vmstate.h"
 #include "sdhci-internal.h"
@@ -154,7 +155,7 @@ static void npcm7xx_sdhci_class_init(ObjectClass *classp, void *data)
 
     dc->desc = "NPCM7xx SD/eMMC Host Controller";
     dc->realize = npcm7xx_sdhci_realize;
-    dc->reset = npcm7xx_sdhci_reset;
+    device_class_set_legacy_reset(dc, npcm7xx_sdhci_reset);
     dc->vmsd = &vmstate_npcm7xx_sdhci;
 }
 
@@ -162,7 +163,7 @@ static void npcm7xx_sdhci_instance_init(Object *obj)
 {
     NPCM7xxSDHCIState *s = NPCM7XX_SDHCI(obj);
 
-    object_initialize_child(OBJECT(s), "generic-sdhci", &s->sdhci,
+    object_initialize_child(OBJECT(s), TYPE_SYSBUS_SDHCI, &s->sdhci,
                             TYPE_SYSBUS_SDHCI);
 }
 

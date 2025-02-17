@@ -47,11 +47,25 @@ over any transport.
   QEMU interference. Note that QEMU does not flush cached file
   data/metadata at the end of migration.
 
-In addition, support is included for migration using RDMA, which
-transports the page data using ``RDMA``, where the hardware takes care of
-transporting the pages, and the load on the CPU is much lower.  While the
-internals of RDMA migration are a bit different, this isn't really visible
-outside the RAM migration code.
+  The file migration also supports using a file that has already been
+  opened. A set of file descriptors is passed to QEMU via an "fdset"
+  (see add-fd QMP command documentation). This method allows a
+  management application to have control over the migration file
+  opening operation. There are, however, strict requirements to this
+  interface if the multifd capability is enabled:
+
+    - the fdset must contain two file descriptors that are not
+      duplicates between themselves;
+    - if the direct-io capability is to be used, exactly one of the
+      file descriptors must have the O_DIRECT flag set;
+    - the file must be opened with WRONLY on the migration source side
+      and RDONLY on the migration destination side.
+
+- rdma migration: support is included for migration using RDMA, which
+  transports the page data using ``RDMA``, where the hardware takes
+  care of transporting the pages, and the load on the CPU is much
+  lower.  While the internals of RDMA migration are a bit different,
+  this isn't really visible outside the RAM migration code.
 
 All these migration protocols use the same infrastructure to
 save/restore state devices.  This infrastructure is shared with the
@@ -451,10 +465,16 @@ Examples of such API functions are:
   - portio_list_set_address()
   - portio_list_set_enabled()
 
+Since the order of device save/restore is not defined, you must
+avoid accessing or changing any other device's state in one of these
+callbacks. (For instance, don't do anything that calls ``update_irq()``
+in a ``post_load`` hook.) Otherwise, restore will not be deterministic,
+and this will break execution record/replay.
+
 Iterative device migration
 --------------------------
 
-Some devices, such as RAM, Block storage or certain platform devices,
+Some devices, such as RAM or certain platform devices,
 have large amounts of data that would mean that the CPUs would be
 paused for too long if they were sent in one section.  For these
 devices an *iterative* approach is taken.

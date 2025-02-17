@@ -195,16 +195,16 @@ DeviceState *apple_otg_create(DTBNode *node)
                           TYPE_APPLE_OTG ".usbctl", sizeof(s->usbctl_reg));
     sysbus_init_mmio(sbd, &s->usbctl);
 
-    child = get_dtb_node(node, "usb-device");
+    child = dtb_get_node(node, "usb-device");
     assert(child);
-    prop = find_dtb_prop(child, "reg");
+    prop = dtb_find_prop(child, "reg");
     assert(prop);
 
     object_initialize_child(OBJECT(dev), "dwc2", &s->dwc2, TYPE_DWC2_USB);
     memory_region_init_alias(
         &s->dwc2_mr, OBJECT(dev), TYPE_APPLE_OTG ".dwc2",
         sysbus_mmio_get_region(SYS_BUS_DEVICE(&s->dwc2), 0), 0,
-        ((uint64_t *)prop->value)[1]);
+        ((uint64_t *)prop->data)[1]);
     sysbus_init_mmio(sbd, &s->dwc2_mr);
 
     memory_region_init_io(&s->widget, OBJECT(dev), &widget_reg_ops, s,
@@ -244,7 +244,7 @@ static void apple_otg_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->realize = apple_otg_realize;
-    dc->reset = apple_otg_reset;
+    device_class_set_legacy_reset(dc, apple_otg_reset);
     dc->desc = "Apple Synopsys USB OTG Controller";
     dc->vmsd = &vmstate_apple_otg;
     device_class_set_props(dc, apple_otg_properties);

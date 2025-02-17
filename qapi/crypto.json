@@ -20,7 +20,6 @@
 # Since: 2.5
 ##
 { 'enum': 'QCryptoTLSCredsEndpoint',
-  'prefix': 'QCRYPTO_TLS_CREDS_ENDPOINT',
   'data': ['client', 'server']}
 
 ##
@@ -36,36 +35,35 @@
 # Since: 2.6
 ##
 { 'enum': 'QCryptoSecretFormat',
-  'prefix': 'QCRYPTO_SECRET_FORMAT',
   'data': ['raw', 'base64']}
 
 ##
-# @QCryptoHashAlgorithm:
+# @QCryptoHashAlgo:
 #
 # The supported algorithms for computing content digests
 #
-# @md5: MD5. Should not be used in any new code, legacy compat only
+# @md5: MD5.  Should not be used in any new code, legacy compat only
 #
-# @sha1: SHA-1. Should not be used in any new code, legacy compat only
+# @sha1: SHA-1.  Should not be used in any new code, legacy compat only
 #
 # @sha224: SHA-224.  (since 2.7)
 #
-# @sha256: SHA-256. Current recommended strong hash.
+# @sha256: SHA-256.  Current recommended strong hash.
 #
 # @sha384: SHA-384.  (since 2.7)
 #
 # @sha512: SHA-512.  (since 2.7)
 #
 # @ripemd160: RIPEMD-160.  (since 2.7)
+# @sm3: SM3. (since 9.2.0)
 #
 # Since: 2.6
 ##
-{ 'enum': 'QCryptoHashAlgorithm',
-  'prefix': 'QCRYPTO_HASH_ALG',
-  'data': ['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512', 'ripemd160']}
+{ 'enum': 'QCryptoHashAlgo',
+  'data': ['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512', 'ripemd160', 'sm3']}
 
 ##
-# @QCryptoCipherAlgorithm:
+# @QCryptoCipherAlgo:
 #
 # The supported algorithms for content encryption ciphers
 #
@@ -98,8 +96,7 @@
 #
 # Since: 2.6
 ##
-{ 'enum': 'QCryptoCipherAlgorithm',
-  'prefix': 'QCRYPTO_CIPHER_ALG',
+{ 'enum': 'QCryptoCipherAlgo',
   'data': ['aes-128', 'aes-192', 'aes-256',
            'des', '3des',
            'cast5-128',
@@ -123,11 +120,10 @@
 # Since: 2.6
 ##
 { 'enum': 'QCryptoCipherMode',
-  'prefix': 'QCRYPTO_CIPHER_MODE',
   'data': ['ecb', 'cbc', 'xts', 'ctr']}
 
 ##
-# @QCryptoIVGenAlgorithm:
+# @QCryptoIVGenAlgo:
 #
 # The supported algorithms for generating initialization vectors for
 # full disk encryption.  The 'plain' generator should not be used for
@@ -143,8 +139,7 @@
 #
 # Since: 2.6
 ##
-{ 'enum': 'QCryptoIVGenAlgorithm',
-  'prefix': 'QCRYPTO_IVGEN_ALG',
+{ 'enum': 'QCryptoIVGenAlgo',
   'data': ['plain', 'plain64', 'essiv']}
 
 ##
@@ -160,7 +155,6 @@
 # Since: 2.6
 ##
 { 'enum': 'QCryptoBlockFormat',
-#  'prefix': 'QCRYPTO_BLOCK_FORMAT',
   'data': ['qcow', 'luks']}
 
 ##
@@ -226,19 +220,16 @@
 # @iter-time: number of milliseconds to spend in PBKDF passphrase
 #     processing.  Currently defaults to 2000.  (since 2.8)
 #
-# @detached-header: create a detached LUKS header.  (since 9.0)
-#
 # Since: 2.6
 ##
 { 'struct': 'QCryptoBlockCreateOptionsLUKS',
   'base': 'QCryptoBlockOptionsLUKS',
-  'data': { '*cipher-alg': 'QCryptoCipherAlgorithm',
+  'data': { '*cipher-alg': 'QCryptoCipherAlgo',
             '*cipher-mode': 'QCryptoCipherMode',
-            '*ivgen-alg': 'QCryptoIVGenAlgorithm',
-            '*ivgen-hash-alg': 'QCryptoHashAlgorithm',
-            '*hash-alg': 'QCryptoHashAlgorithm',
-            '*iter-time': 'int',
-            '*detached-header': 'bool'}}
+            '*ivgen-alg': 'QCryptoIVGenAlgo',
+            '*ivgen-hash-alg': 'QCryptoHashAlgo',
+            '*hash-alg': 'QCryptoHashAlgo',
+            '*iter-time': 'int' }}
 
 ##
 # @QCryptoBlockOpenOptions:
@@ -330,11 +321,11 @@
 # Since: 2.7
 ##
 { 'struct': 'QCryptoBlockInfoLUKS',
-  'data': {'cipher-alg': 'QCryptoCipherAlgorithm',
+  'data': {'cipher-alg': 'QCryptoCipherAlgo',
            'cipher-mode': 'QCryptoCipherMode',
-           'ivgen-alg': 'QCryptoIVGenAlgorithm',
-           '*ivgen-hash-alg': 'QCryptoHashAlgorithm',
-           'hash-alg': 'QCryptoHashAlgorithm',
+           'ivgen-alg': 'QCryptoIVGenAlgo',
+           '*ivgen-hash-alg': 'QCryptoHashAlgo',
+           'hash-alg': 'QCryptoHashAlgo',
            'detached-header': 'bool',
            'payload-offset': 'int',
            'master-key-iters': 'int',
@@ -429,11 +420,6 @@
 #
 # Properties for objects of classes derived from secret-common.
 #
-# @loaded: if true, the secret is loaded immediately when applying
-#     this option and will probably fail when processing the next
-#     option.  Don't use; only provided for compatibility.
-#     (default: false)
-#
 # @format: the data format that the secret is provided in
 #     (default: raw)
 #
@@ -443,19 +429,13 @@
 #
 # @iv: the random initialization vector used for encryption of this
 #     particular secret.  Should be a base64 encrypted string of the
-#     16-byte IV. Mandatory if @keyid is given.  Ignored if @keyid is
+#     16-byte IV.  Mandatory if @keyid is given.  Ignored if @keyid is
 #     absent.
-#
-# Features:
-#
-# @deprecated: Member @loaded is deprecated.  Setting true doesn't
-#     make sense, and false is already the default.
 #
 # Since: 2.6
 ##
 { 'struct': 'SecretCommonProperties',
-  'data': { '*loaded': { 'type': 'bool', 'features': ['deprecated'] },
-            '*format': 'QCryptoSecretFormat',
+  'data': { '*format': 'QCryptoSecretFormat',
             '*keyid': 'str',
             '*iv': 'str' } }
 
@@ -488,7 +468,8 @@
 ##
 { 'struct': 'SecretKeyringProperties',
   'base': 'SecretCommonProperties',
-  'data': { 'serial': 'int32' } }
+  'data': { 'serial': 'int32' },
+  'if': 'CONFIG_SECRET_KEYRING' }
 
 ##
 # @TlsCredsProperties:
@@ -521,57 +502,31 @@
 #
 # Properties for tls-creds-anon objects.
 #
-# @loaded: if true, the credentials are loaded immediately when
-#     applying this option and will ignore options that are processed
-#     later.  Don't use; only provided for compatibility.
-#     (default: false)
-#
-# Features:
-#
-# @deprecated: Member @loaded is deprecated.  Setting true doesn't
-#     make sense, and false is already the default.
-#
 # Since: 2.5
 ##
 { 'struct': 'TlsCredsAnonProperties',
   'base': 'TlsCredsProperties',
-  'data': { '*loaded': { 'type': 'bool', 'features': ['deprecated'] } } }
+  'data': { } }
 
 ##
 # @TlsCredsPskProperties:
 #
 # Properties for tls-creds-psk objects.
 #
-# @loaded: if true, the credentials are loaded immediately when
-#     applying this option and will ignore options that are processed
-#     later.  Don't use; only provided for compatibility.
-#     (default: false)
-#
 # @username: the username which will be sent to the server.  For
 #     clients only.  If absent, "qemu" is sent and the property will
 #     read back as an empty string.
-#
-# Features:
-#
-# @deprecated: Member @loaded is deprecated.  Setting true doesn't
-#     make sense, and false is already the default.
 #
 # Since: 3.0
 ##
 { 'struct': 'TlsCredsPskProperties',
   'base': 'TlsCredsProperties',
-  'data': { '*loaded': { 'type': 'bool', 'features': ['deprecated'] },
-            '*username': 'str' } }
+  'data': { '*username': 'str' } }
 
 ##
 # @TlsCredsX509Properties:
 #
 # Properties for tls-creds-x509 objects.
-#
-# @loaded: if true, the credentials are loaded immediately when
-#     applying this option and will ignore options that are processed
-#     later.  Don't use; only provided for compatibility.
-#     (default: false)
 #
 # @sanity-check: if true, perform some sanity checks before using the
 #     credentials (default: true)
@@ -582,20 +537,14 @@
 #     provides the ID of a previously created secret object containing
 #     the password for decryption.
 #
-# Features:
-#
-# @deprecated: Member @loaded is deprecated.  Setting true doesn't
-#     make sense, and false is already the default.
-#
 # Since: 2.5
 ##
 { 'struct': 'TlsCredsX509Properties',
   'base': 'TlsCredsProperties',
-  'data': { '*loaded': { 'type': 'bool', 'features': ['deprecated'] },
-            '*sanity-check': 'bool',
+  'data': { '*sanity-check': 'bool',
             '*passwordid': 'str' } }
 ##
-# @QCryptoAkCipherAlgorithm:
+# @QCryptoAkCipherAlgo:
 #
 # The supported algorithms for asymmetric encryption ciphers
 #
@@ -603,8 +552,7 @@
 #
 # Since: 7.1
 ##
-{ 'enum': 'QCryptoAkCipherAlgorithm',
-  'prefix': 'QCRYPTO_AKCIPHER_ALG',
+{ 'enum': 'QCryptoAkCipherAlgo',
   'data': ['rsa']}
 
 ##
@@ -612,14 +560,17 @@
 #
 # The type of asymmetric keys.
 #
+# @public: public key
+#
+# @private: private key
+#
 # Since: 7.1
 ##
 { 'enum': 'QCryptoAkCipherKeyType',
-  'prefix': 'QCRYPTO_AKCIPHER_KEY_TYPE',
   'data': ['public', 'private']}
 
 ##
-# @QCryptoRSAPaddingAlgorithm:
+# @QCryptoRSAPaddingAlgo:
 #
 # The padding algorithm for RSA.
 #
@@ -629,8 +580,7 @@
 #
 # Since: 7.1
 ##
-{ 'enum': 'QCryptoRSAPaddingAlgorithm',
-  'prefix': 'QCRYPTO_RSA_PADDING_ALG',
+{ 'enum': 'QCryptoRSAPaddingAlgo',
   'data': ['raw', 'pkcs1']}
 
 ##
@@ -638,15 +588,15 @@
 #
 # Specific parameters for RSA algorithm.
 #
-# @hash-alg: QCryptoHashAlgorithm
+# @hash-alg: QCryptoHashAlgo
 #
-# @padding-alg: QCryptoRSAPaddingAlgorithm
+# @padding-alg: QCryptoRSAPaddingAlgo
 #
 # Since: 7.1
 ##
 { 'struct': 'QCryptoAkCipherOptionsRSA',
-  'data': { 'hash-alg':'QCryptoHashAlgorithm',
-            'padding-alg': 'QCryptoRSAPaddingAlgorithm'}}
+  'data': { 'hash-alg':'QCryptoHashAlgo',
+            'padding-alg': 'QCryptoRSAPaddingAlgo'}}
 
 ##
 # @QCryptoAkCipherOptions:
@@ -659,6 +609,6 @@
 # Since: 7.1
 ##
 { 'union': 'QCryptoAkCipherOptions',
-  'base': { 'alg': 'QCryptoAkCipherAlgorithm' },
+  'base': { 'alg': 'QCryptoAkCipherAlgo' },
   'discriminator': 'alg',
   'data': { 'rsa': 'QCryptoAkCipherOptionsRSA' }}

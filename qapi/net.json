@@ -22,11 +22,11 @@
 #
 # Since: 0.14
 #
-# Notes: Not all network adapters support setting link status.  This
-#     command will succeed even if the network adapter does not
-#     support link status notification.
+# .. note:: Not all network adapters support setting link status.
+#    This command will succeed even if the network adapter does not
+#    support link status notification.
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "set_link",
 #          "arguments": { "name": "e1000.0", "up": false } }
@@ -46,7 +46,7 @@
 # Errors:
 #     - If @type is not a valid network backend, DeviceNotFound
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "netdev_add",
 #          "arguments": { "type": "user", "id": "netdev1",
@@ -68,7 +68,7 @@
 #
 # Since: 0.14
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "netdev_del", "arguments": { "id": "netdev1" } }
 #     <- { "return": {} }
@@ -403,7 +403,7 @@
 # Connect a client to a netmap-enabled NIC or to a VALE switch port
 #
 # @ifname: Either the name of an existing network interface supported
-#     by netmap, or the name of a VALE port (created on the fly). A
+#     by netmap, or the name of a VALE port (created on the fly).  A
 #     VALE port name is in the form 'valeXXX:YYY', where XXX and YYY
 #     are non-negative integers.  XXX identifies a switch and YYY
 #     identifies a port of the switch.  VALE ports having the same XXX
@@ -535,13 +535,13 @@
 # interfaces that are in host mode and also with the host.
 #
 # @start-address: The starting IPv4 address to use for the interface.
-#     Must be in the private IP range (RFC 1918). Must be specified
+#     Must be in the private IP range (RFC 1918).  Must be specified
 #     along with @end-address and @subnet-mask.  This address is used
 #     as the gateway address.  The subsequent address up to and
 #     including end-address are placed in the DHCP pool.
 #
 # @end-address: The DHCP IPv4 range end address to use for the
-#     interface.  Must be in the private IP range (RFC 1918). Must be
+#     interface.  Must be in the private IP range (RFC 1918).  Must be
 #     specified along with @start-address and @subnet-mask.
 #
 # @subnet-mask: The IPv4 subnet mask to use on the interface.  Must be
@@ -556,7 +556,7 @@
 #     network vmnet interface should be added to.  If set, no DHCP
 #     service is provided for this interface and network communication
 #     is allowed only with other interfaces added to this network
-#     identified by the UUID. Requires at least macOS Big Sur 11.0.
+#     identified by the UUID.  Requires at least macOS Big Sur 11.0.
 #
 # Since: 7.1
 ##
@@ -575,20 +575,20 @@
 # vmnet (shared mode) network backend.
 #
 # Allows traffic originating from the vmnet interface to reach the
-# Internet through a network address translator (NAT). The vmnet
+# Internet through a network address translator (NAT).  The vmnet
 # interface can communicate with the host and with other shared mode
 # interfaces on the same subnet.  If no DHCP settings, subnet mask and
 # IPv6 prefix specified, the interface can communicate with any of
 # other interfaces in shared mode.
 #
 # @start-address: The starting IPv4 address to use for the interface.
-#     Must be in the private IP range (RFC 1918). Must be specified
+#     Must be in the private IP range (RFC 1918).  Must be specified
 #     along with @end-address and @subnet-mask.  This address is used
 #     as the gateway address.  The subsequent address up to and
 #     including end-address are placed in the DHCP pool.
 #
 # @end-address: The DHCP IPv4 range end address to use for the
-#     interface.  Must be in the private IP range (RFC 1918). Must be
+#     interface.  Must be in the private IP range (RFC 1918).  Must be
 #     specified along with @start-address and @subnet-mask.
 #
 # @subnet-mask: The IPv4 subnet mask to use on the interface.  Must be
@@ -650,7 +650,17 @@
 #     attempt a reconnect after the given number of seconds.  Setting
 #     this to zero disables this function.  (default: 0) (since 8.0)
 #
+# @reconnect-ms: For a client socket, if a socket is disconnected, then
+#     attempt a reconnect after the given number of milliseconds.  Setting
+#     this to zero disables this function.  This member is mutually
+#     exclusive with @reconnect.  (default: 0) (Since: 9.2)
+#
 # Only SocketAddress types 'unix', 'inet' and 'fd' are supported.
+#
+# Features:
+#
+# @deprecated: Member @reconnect is deprecated.  Use @reconnect-ms
+#     instead.
 #
 # Since: 7.2
 ##
@@ -658,7 +668,8 @@
   'data': {
     'addr':   'SocketAddress',
     '*server': 'bool',
-    '*reconnect': 'uint32' } }
+    '*reconnect': { 'type': 'int', 'features': [ 'deprecated' ] },
+    '*reconnect-ms': 'int' } }
 
 ##
 # @NetdevDgramOptions:
@@ -703,12 +714,19 @@
 # Available netdev drivers.
 #
 # @l2tpv3: since 2.1
+#
 # @vhost-vdpa: since 5.1
+#
 # @vmnet-host: since 7.1
+#
 # @vmnet-shared: since 7.1
+#
 # @vmnet-bridged: since 7.1
+#
 # @stream: since 7.2
+#
 # @dgram: since 7.2
+#
 # @af-xdp: since 8.2
 #
 # Since: 2.7
@@ -836,7 +854,7 @@
 #
 # Since: 1.6
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "query-rx-filter", "arguments": { "name": "vnet0" } }
 #     <- { "return": [
@@ -881,7 +899,7 @@
 #
 # Since: 1.6
 #
-# Example:
+# .. qmp-example::
 #
 #     <- { "event": "NIC_RX_FILTER_CHANGED",
 #          "data": { "name": "vnet0",
@@ -930,7 +948,9 @@
 # switches.  This can be useful when network bonds fail-over the
 # active slave.
 #
-# Example:
+# TODO: This line is a hack to separate the example from the body
+#
+# .. qmp-example::
 #
 #     -> { "execute": "announce-self",
 #          "arguments": {
@@ -955,7 +975,7 @@
 #
 # Since: 4.2
 #
-# Example:
+# .. qmp-example::
 #
 #     <- { "event": "FAILOVER_NEGOTIATED",
 #          "data": { "device-id": "net1" },
@@ -975,13 +995,15 @@
 #
 # Since: 7.2
 #
-# Examples:
+# .. qmp-example::
 #
 #     <- { "event": "NETDEV_STREAM_CONNECTED",
 #          "data": { "netdev-id": "netdev0",
 #                    "addr": { "port": "47666", "ipv6": true,
 #                              "host": "::1", "type": "inet" } },
 #          "timestamp": { "seconds": 1666269863, "microseconds": 311222 } }
+#
+# .. qmp-example::
 #
 #     <- { "event": "NETDEV_STREAM_CONNECTED",
 #          "data": { "netdev-id": "netdev0",
@@ -1001,11 +1023,11 @@
 #
 # Since: 7.2
 #
-# Example:
+# .. qmp-example::
 #
-#     <- { 'event': 'NETDEV_STREAM_DISCONNECTED',
-#          'data': {'netdev-id': 'netdev0'},
-#          'timestamp': {'seconds': 1663330937, 'microseconds': 526695} }
+#     <- { "event": "NETDEV_STREAM_DISCONNECTED",
+#          "data": {"netdev-id": "netdev0"},
+#          "timestamp": {"seconds": 1663330937, "microseconds": 526695} }
 ##
 { 'event': 'NETDEV_STREAM_DISCONNECTED',
   'data': { 'netdev-id': 'str' } }

@@ -1,11 +1,14 @@
 config LOONGARCH_VIRT
     bool
+    default y
+    depends on LOONGARCH64 && FDT
+    select DEVICE_TREE
     select PCI
     select PCI_EXPRESS_GENERIC_BRIDGE
-    imply VIRTIO_VGA
     imply PCI_DEVICES
     imply NVDIMM
-    select SERIAL
+    imply TPM_TIS_SYSBUS
+    select SERIAL_MM
     select VIRTIO_PCI
     select PLATFORM_BUS
     select LOONGARCH_IPI

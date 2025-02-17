@@ -1,5 +1,5 @@
-#ifndef APPLE_SPI_H
-#define APPLE_SPI_H
+#ifndef HW_SSI_APPLE_SPI_H
+#define HW_SSI_APPLE_SPI_H
 
 #include "hw/arm/apple-silicon/dtb.h"
 #include "hw/sysbus.h"
@@ -11,4 +11,5 @@
 OBJECT_DECLARE_SIMPLE_TYPE(AppleSPIState, APPLE_SPI)
 
 SysBusDevice *apple_spi_create(DTBNode *node);
-#endif /* APPLE_SPI_H */
+SSIBus *apple_spi_get_bus(AppleSPIState *s);
+#endif /* HW_SSI_APPLE_SPI_H */

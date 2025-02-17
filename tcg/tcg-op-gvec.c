@@ -88,7 +88,20 @@ uint32_t simd_desc(uint32_t oprsz, uint32_t maxsz, int32_t data)
     uint32_t desc = 0;
 
     check_size_align(oprsz, maxsz, 0);
-    tcg_debug_assert(data == sextract32(data, 0, SIMD_DATA_BITS));
+
+    /*
+     * We want to check that 'data' will fit into SIMD_DATA_BITS.
+     * However, some callers want to treat the data as a signed
+     * value (which they can later get back with simd_data())
+     * and some want to treat it as an unsigned value.
+     * So here we assert only that the data will fit into the
+     * field in at least one way. This means that some invalid
+     * values from the caller will not be detected, e.g. if the
+     * caller wants to handle the value as a signed integer but
+     * incorrectly passes us 1 << (SIMD_DATA_BITS - 1).
+     */
+    tcg_debug_assert(data == sextract32(data, 0, SIMD_DATA_BITS) ||
+                     data == extract32(data, 0, SIMD_DATA_BITS));
 
     oprsz = (oprsz / 8) - 1;
     maxsz = (maxsz / 8) - 1;
@@ -785,7 +798,8 @@ static void expand_3_i32(uint32_t dofs, uint32_t aofs,
 }
 
 static void expand_3i_i32(uint32_t dofs, uint32_t aofs, uint32_t bofs,
-                          uint32_t oprsz, int32_t c, bool load_dest,
+                          uint32_t oprsz, int32_t c,
+                          bool load_dest, bool write_aofs,
                           void (*fni)(TCGv_i32, TCGv_i32, TCGv_i32, int32_t))
 {
     TCGv_i32 t0 = tcg_temp_new_i32();
@@ -801,6 +815,9 @@ static void expand_3i_i32(uint32_t dofs, uint32_t aofs, uint32_t bofs,
         }
         fni(t2, t0, t1, c);
         tcg_gen_st_i32(t2, tcg_env, dofs + i);
+        if (write_aofs) {
+            tcg_gen_st_i32(t0, tcg_env, aofs + i);
+        }
     }
     tcg_temp_free_i32(t0);
     tcg_temp_free_i32(t1);
@@ -944,7 +961,8 @@ static void expand_3_i64(uint32_t dofs, uint32_t aofs,
 }
 
 static void expand_3i_i64(uint32_t dofs, uint32_t aofs, uint32_t bofs,
-                          uint32_t oprsz, int64_t c, bool load_dest,
+                          uint32_t oprsz, int64_t c,
+                          bool load_dest, bool write_aofs,
                           void (*fni)(TCGv_i64, TCGv_i64, TCGv_i64, int64_t))
 {
     TCGv_i64 t0 = tcg_temp_new_i64();
@@ -960,6 +978,9 @@ static void expand_3i_i64(uint32_t dofs, uint32_t aofs, uint32_t bofs,
         }
         fni(t2, t0, t1, c);
         tcg_gen_st_i64(t2, tcg_env, dofs + i);
+        if (write_aofs) {
+            tcg_gen_st_i64(t0, tcg_env, aofs + i);
+        }
     }
     tcg_temp_free_i64(t0);
     tcg_temp_free_i64(t1);
@@ -1102,7 +1123,8 @@ static void expand_3_vec(unsigned vece, uint32_t dofs, uint32_t aofs,
  */
 static void expand_3i_vec(unsigned vece, uint32_t dofs, uint32_t aofs,
                           uint32_t bofs, uint32_t oprsz, uint32_t tysz,
-                          TCGType type, int64_t c, bool load_dest,
+                          TCGType type, int64_t c,
+                          bool load_dest, bool write_aofs,
                           void (*fni)(unsigned, TCGv_vec, TCGv_vec, TCGv_vec,
                                       int64_t))
 {
@@ -1118,6 +1140,9 @@ static void expand_3i_vec(unsigned vece, uint32_t dofs, uint32_t aofs,
         }
         fni(vece, t2, t0, t1, c);
         tcg_gen_st_vec(t2, tcg_env, dofs + i);
+        if (write_aofs) {
+            tcg_gen_st_vec(t0, tcg_env, aofs + i);
+        }
     }
 }
 
@@ -1471,7 +1496,7 @@ void tcg_gen_gvec_3i(uint32_t dofs, uint32_t aofs, uint32_t bofs,
          */
         some = QEMU_ALIGN_DOWN(oprsz, 32);
         expand_3i_vec(g->vece, dofs, aofs, bofs, some, 32, TCG_TYPE_V256,
-                      c, g->load_dest, g->fniv);
+                      c, g->load_dest, g->write_aofs, g->fniv);
         if (some == oprsz) {
             break;
         }
@@ -1483,18 +1508,20 @@ void tcg_gen_gvec_3i(uint32_t dofs, uint32_t aofs, uint32_t bofs,
         /* fallthru */
     case TCG_TYPE_V128:
         expand_3i_vec(g->vece, dofs, aofs, bofs, oprsz, 16, TCG_TYPE_V128,
-                      c, g->load_dest, g->fniv);
+                      c, g->load_dest, g->write_aofs, g->fniv);
         break;
     case TCG_TYPE_V64:
         expand_3i_vec(g->vece, dofs, aofs, bofs, oprsz, 8, TCG_TYPE_V64,
-                      c, g->load_dest, g->fniv);
+                      c, g->load_dest, g->write_aofs, g->fniv);
         break;
 
     case 0:
         if (g->fni8 && check_size_impl(oprsz, 8)) {
-            expand_3i_i64(dofs, aofs, bofs, oprsz, c, g->load_dest, g->fni8);
+            expand_3i_i64(dofs, aofs, bofs, oprsz, c,
+                          g->load_dest, g->write_aofs, g->fni8);
         } else if (g->fni4 && check_size_impl(oprsz, 4)) {
-            expand_3i_i32(dofs, aofs, bofs, oprsz, c, g->load_dest, g->fni4);
+            expand_3i_i32(dofs, aofs, bofs, oprsz, c,
+                          g->load_dest, g->write_aofs, g->fni4);
         } else {
             assert(g->fno != NULL);
             tcg_gen_gvec_3_ool(dofs, aofs, bofs, oprsz, maxsz, c, g->fno);
@@ -3925,7 +3952,7 @@ void tcg_gen_gvec_cmps(TCGCond cond, unsigned vece, uint32_t dofs,
         uint32_t i;
 
         tcg_gen_extrl_i64_i32(t1, c);
-        for (i = 0; i < oprsz; i += 8) {
+        for (i = 0; i < oprsz; i += 4) {
             tcg_gen_ld_i32(t0, tcg_env, aofs + i);
             tcg_gen_negsetcond_i32(cond, t0, t0, t1);
             tcg_gen_st_i32(t0, tcg_env, dofs + i);

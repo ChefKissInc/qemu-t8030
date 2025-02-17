@@ -29,13 +29,12 @@ sgx_epc_backend_memory_alloc(HostMemoryBackend *backend, Error **errp)
         return false;
     }
 
-    fd = qemu_open_old("/dev/sgx_vepc", O_RDWR);
+    fd = qemu_open("/dev/sgx_vepc", O_RDWR, errp);
     if (fd < 0) {
-        error_setg_errno(errp, errno,
-                         "failed to open /dev/sgx_vepc to alloc SGX EPC");
         return false;
     }
 
+    backend->aligned = true;
     name = object_get_canonical_path(OBJECT(backend));
     ram_flags = (backend->share ? RAM_SHARED : 0) | RAM_PROTECTED;
     return memory_region_init_ram_from_fd(&backend->mr, OBJECT(backend), name,

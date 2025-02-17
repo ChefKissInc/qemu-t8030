@@ -56,14 +56,14 @@ typedef struct AppleNvramState {
 
     NvramBank *bank;
     QTAILQ_HEAD(, env_var) env;
-    size_t len;
+    uint32_t len;
 } AppleNvramState;
 
 struct AppleNvramClass {
     /*< private >*/
     DeviceClass base_class;
-    /*< public >*/
 
+    /*< public >*/
     DeviceRealize parent_realize;
     DeviceUnrealize parent_unrealize;
     DeviceReset parent_reset;

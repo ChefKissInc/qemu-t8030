@@ -182,7 +182,7 @@ static void apple_spmi_queue_reg_write(void *opaque, hwaddr addr, uint64_t data,
         if (s->data == NULL) {
             uint8_t sid = SPMI_REQ_SID(value);
             uint8_t opc = spmi_opcode(value);
-            uint32_t addr = spmi_address(value);
+            uint32_t addr2 = spmi_address(value);
             bool parity = !(value & SPMI_REQ_FINAL);
             uint32_t len = spmi_data_length(value);
 
@@ -190,7 +190,7 @@ static void apple_spmi_queue_reg_write(void *opaque, hwaddr addr, uint64_t data,
 #ifdef DEBUG_SPMI
             qemu_log_mask(LOG_UNIMP,
                           "%s: sid: 0x%x opc: 0x%x addr: 0x%x len: 0x%x\n",
-                          DEVICE(s)->id, sid, opc, addr, len);
+                          DEVICE(s)->id, sid, opc, addr2, len);
 #endif
 
             if (opc == SPMI_CMD_EXT_WRITE || opc == SPMI_CMD_EXT_WRITEL) {
@@ -198,13 +198,13 @@ static void apple_spmi_queue_reg_write(void *opaque, hwaddr addr, uint64_t data,
                 s->data_filled = 0;
                 s->data = g_new0(uint32_t, s->data_length);
             }
-            if (spmi_start_transfer(s->bus, sid, opc, addr)) {
+            if (spmi_start_transfer(s->bus, sid, opc, addr2)) {
                 return;
             }
             if (s->data == NULL && len) {
                 assert(opc == SPMI_CMD_EXT_READ || opc == SPMI_CMD_EXT_READL);
-                g_autofree uint32_t *data = g_malloc0(len + 3);
-                int count = spmi_recv(s->bus, (uint8_t *)data, len);
+                g_autofree uint32_t *data2 = g_malloc0(len + 3);
+                int count = spmi_recv(s->bus, (uint8_t *)data2, len);
                 uint8_t ack = 0;
                 value &= 0xFFF;
                 if (count > 0) {
@@ -213,7 +213,7 @@ static void apple_spmi_queue_reg_write(void *opaque, hwaddr addr, uint64_t data,
                 value |= (ack << SPMI_RSP_ACK_SHIFT);
                 fifo32_push(&s->resp_fifo, value);
                 for (int i = 0; i < (len + 3) / 4; i++) {
-                    fifo32_push(&s->resp_fifo, data[i]);
+                    fifo32_push(&s->resp_fifo, data2[i]);
                 }
             }
             if (s->data == NULL && !parity) {
@@ -480,13 +480,13 @@ static void apple_spmi_reset_enter(Object *obj, ResetType type)
     s->data_length = 0;
 }
 
-static void apple_spmi_reset_exit(Object *obj)
+static void apple_spmi_reset_exit(Object *obj, ResetType type)
 {
     AppleSPMIState *s = APPLE_SPMI(obj);
     AppleSPMIClass *c = APPLE_SPMI_GET_CLASS(obj);
 
-    if (c->parent_phases.exit) {
-        c->parent_phases.exit(obj);
+    if (c->parent_phases.exit != NULL) {
+        c->parent_phases.exit(obj, type);
     }
     apple_spmi_update_queues_status(s);
     apple_spmi_update_irq(s);
@@ -561,28 +561,28 @@ SysBusDevice *apple_spmi_create(DTBNode *node)
     s = APPLE_SPMI(dev);
     sbd = SYS_BUS_DEVICE(dev);
 
-    prop = find_dtb_prop(node, "name");
-    dev->id = g_strdup((const char *)prop->value);
+    prop = dtb_find_prop(node, "name");
+    dev->id = g_strdup((const char *)prop->data);
 
-    prop = find_dtb_prop(node, "reg-vers");
+    prop = dtb_find_prop(node, "reg-vers");
     if (prop) {
-        s->reg_vers = *(uint32_t *)prop->value;
+        s->reg_vers = *(uint32_t *)prop->data;
     }
 
     /* XXX: There is a register overlapping issue (STS and ENAB) with reg v0 */
     assert(s->reg_vers != 0);
 
-    prop = find_dtb_prop(node, "AAPL,phandle");
+    prop = dtb_find_prop(node, "AAPL,phandle");
 
-    phandle = *(uint32_t *)prop->value;
+    phandle = *(uint32_t *)prop->data;
 
-    prop = find_dtb_prop(node, "interrupts");
+    prop = dtb_find_prop(node, "interrupts");
 
-    s->resp_intr_index = *(uint32_t *)prop->value;
+    s->resp_intr_index = *(uint32_t *)prop->data;
 
-    prop = find_dtb_prop(node, "interrupt-parent");
+    prop = dtb_find_prop(node, "interrupt-parent");
     /* The first interrupt in list (response) should be self-wired */
-    assert(*(uint32_t *)prop->value == phandle);
+    assert(*(uint32_t *)prop->data == phandle);
 
     return sbd;
 }

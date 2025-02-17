@@ -26,11 +26,11 @@
 # @skipauth: whether to skip authentication.  Only applies to "vnc"
 #     and "spice" protocols
 #
-# @tls: whether to perform TLS. Only applies to the "spice" protocol
+# @tls: whether to perform TLS.  Only applies to the "spice" protocol
 #
 # Since: 0.14
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "add_client", "arguments": { "protocol": "vnc",
 #                                                  "fdname": "myclient" } }
@@ -60,7 +60,7 @@
 #
 # Since: 0.14
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "query-name" }
 #     <- { "return": { "name": "qemu-name" } }
@@ -103,15 +103,15 @@
 #
 # Returns a list of information about each iothread.
 #
-# Note: this list excludes the QEMU main loop thread, which is not
-#     declared using the -object iothread command-line option.  It is
-#     always the main thread of the process.
+# .. note:: This list excludes the QEMU main loop thread, which is not
+#    declared using the ``-object iothread`` command-line option.  It
+#    is always the main thread of the process.
 #
 # Returns: a list of @IOThreadInfo for each iothread
 #
 # Since: 2.0
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "query-iothreads" }
 #     <- { "return": [
@@ -136,15 +136,15 @@
 #
 # Since: 0.14
 #
-# Notes: This function will succeed even if the guest is already in
-#     the stopped state.  In "inmigrate" state, it will ensure that
-#     the guest remains paused once migration finishes, as if the -S
-#     option was passed on the command line.
+# .. note:: This function will succeed even if the guest is already in
+#    the stopped state.  In "inmigrate" state, it will ensure that the
+#    guest remains paused once migration finishes, as if the ``-S``
+#    option was passed on the command line.
 #
-#     In the "suspended" state, it will completely stop the VM and
-#     cause a transition to the "paused" state.  (Since 9.0)
+#    In the "suspended" state, it will completely stop the VM and
+#    cause a transition to the "paused" state.  (Since 9.0)
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "stop" }
 #     <- { "return": {} }
@@ -158,17 +158,17 @@
 #
 # Since: 0.14
 #
-# Notes: This command will succeed if the guest is currently running.
-#     It will also succeed if the guest is in the "inmigrate" state;
-#     in this case, the effect of the command is to make sure the
-#     guest starts once migration finishes, removing the effect of the
-#     -S command line option if it was passed.
+# .. note:: This command will succeed if the guest is currently
+#    running.  It will also succeed if the guest is in the "inmigrate"
+#    state; in this case, the effect of the command is to make sure
+#    the guest starts once migration finishes, removing the effect of
+#    the ``-S`` command line option if it was passed.
 #
-#     If the VM was previously suspended, and not been reset or woken,
-#     this command will transition back to the "suspended" state.
-#     (Since 9.0)
+#    If the VM was previously suspended, and not been reset or woken,
+#    this command will transition back to the "suspended" state.
+#    (Since 9.0)
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "cont" }
 #     <- { "return": {} }
@@ -192,7 +192,7 @@
 #
 # Since: 3.0
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "x-exit-preconfig" }
 #     <- { "return": {} }
@@ -219,20 +219,20 @@
 #
 # Since: 0.14
 #
-# Notes: This command only exists as a stop-gap.  Its use is highly
-#     discouraged.  The semantics of this command are not guaranteed:
-#     this means that command names, arguments and responses can
-#     change or be removed at ANY time.  Applications that rely on
-#     long term stability guarantees should NOT use this command.
+# .. note:: This command only exists as a stop-gap.  Its use is highly
+#    discouraged.  The semantics of this command are not guaranteed:
+#    this means that command names, arguments and responses can change
+#    or be removed at ANY time.  Applications that rely on long term
+#    stability guarantees should NOT use this command.
 #
-#     Known limitations:
+#    Known limitations:
 #
-#     * This command is stateless, this means that commands that
-#       depend on state information (such as getfd) might not work
+#    * This command is stateless, this means that commands that depend
+#      on state information (such as getfd) might not work.
 #
-#     * Commands that prompt the user for data don't currently work
+#    * Commands that prompt the user for data don't currently work.
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "human-monitor-command",
 #          "arguments": { "command-line": "info kvm" } }
@@ -252,13 +252,13 @@
 #
 # Since: 0.14
 #
-# Notes: If @fdname already exists, the file descriptor assigned to it
-#     will be closed and replaced by the received file descriptor.
+# .. note:: If @fdname already exists, the file descriptor assigned to
+#    it will be closed and replaced by the received file descriptor.
 #
-#     The 'closefd' command can be used to explicitly close the file
-#     descriptor when it is no longer needed.
+#    The 'closefd' command can be used to explicitly close the file
+#    descriptor when it is no longer needed.
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "getfd", "arguments": { "fdname": "fd1" } }
 #     <- { "return": {} }
@@ -279,15 +279,16 @@
 #
 # Since: 8.0
 #
-# Notes: If @fdname already exists, the file descriptor assigned to it
-#     will be closed and replaced by the received file descriptor.
+# .. note:: If @fdname already exists, the file descriptor assigned to
+#    it will be closed and replaced by the received file descriptor.
 #
-#     The 'closefd' command can be used to explicitly close the file
-#     descriptor when it is no longer needed.
+#    The 'closefd' command can be used to explicitly close the file
+#    descriptor when it is no longer needed.
 #
-# Example:
+# .. qmp-example::
 #
-#     -> { "execute": "get-win32-socket", "arguments": { "info": "abcd123..", fdname": "skclient" } }
+#     -> { "execute": "get-win32-socket",
+#          "arguments": { "info": "abcd123..", "fdname": "skclient" } }
 #     <- { "return": {} }
 ##
 { 'command': 'get-win32-socket', 'data': {'info': 'str', 'fdname': 'str'}, 'if': 'CONFIG_WIN32' }
@@ -301,7 +302,7 @@
 #
 # Since: 0.14
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "closefd", "arguments": { "fdname": "fd1" } }
 #     <- { "return": {} }
@@ -338,14 +339,14 @@
 #     - If file descriptor was not received, GenericError
 #     - If @fdset-id is a negative value, GenericError
 #
-# Notes:
-#     The list of fd sets is shared by all monitor connections.
+# .. note:: The list of fd sets is shared by all monitor connections.
 #
-#     If @fdset-id is not specified, a new fd set will be created.
+# .. note:: If @fdset-id is not specified, a new fd set will be
+#    created.
 #
 # Since: 1.2
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "add-fd", "arguments": { "fdset-id": 1 } }
 #     <- { "return": { "fdset-id": 1, "fd": 3 } }
@@ -369,13 +370,12 @@
 #
 # Since: 1.2
 #
-# Notes:
-#     The list of fd sets is shared by all monitor connections.
+# .. note:: The list of fd sets is shared by all monitor connections.
 #
-#     If @fd is not specified, all file descriptors in @fdset-id will
-#     be removed.
+# .. note:: If @fd is not specified, all file descriptors in @fdset-id
+#    will be removed.
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "remove-fd", "arguments": { "fdset-id": 1, "fd": 3 } }
 #     <- { "return": {} }
@@ -419,9 +419,9 @@
 #
 # Since: 1.2
 #
-# Note: The list of fd sets is shared by all monitor connections.
+# .. note:: The list of fd sets is shared by all monitor connections.
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "query-fdsets" }
 #     <- { "return": [
@@ -524,7 +524,7 @@
 #
 # Since: 1.5
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "query-command-line-options",
 #          "arguments": { "option": "option-rom" } }
@@ -560,13 +560,13 @@
 #
 # @qom-path: path to the RTC object in the QOM tree
 #
-# Note: This event is rate-limited.  It is not guaranteed that the RTC
-#     in the system implements this event, or even that the system has
-#     an RTC at all.
+# .. note:: This event is rate-limited.  It is not guaranteed that the
+#    RTC in the system implements this event, or even that the system
+#    has an RTC at all.
 #
 # Since: 0.13
 #
-# Example:
+# .. qmp-example::
 #
 #     <- { "event": "RTC_CHANGE",
 #          "data": { "offset": 78 },
@@ -593,7 +593,7 @@
 #
 # Since: 7.1
 #
-# Example:
+# .. qmp-example::
 #
 #     <- { "event": "VFU_CLIENT_HANGUP",
 #          "data": { "vfu-id": "vfu1",

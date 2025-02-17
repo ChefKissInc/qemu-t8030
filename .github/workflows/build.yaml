@@ -6,120 +6,84 @@ on:
   pull_request:
 
 jobs:
-  build_aarch64_softmmu_linux:
+  build_linux:
     runs-on: ubuntu-24.04
     steps:
-      - name: Install build dependencies
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bash bc bison bsdextrautils bzip2 ca-certificates ccache clang dbus debianutils diffutils exuberant-ctags findutils flex g++ gcc gcovr genisoimage gettext git hostname libaio-dev libasan5 libasound2-dev libattr1-dev libbpf-dev libbrlapi-dev libbz2-dev libc6-dev libcacard-dev libcap-ng-dev libcapstone-dev libcmocka-dev libcurl4-gnutls-dev libdaxctl-dev libdrm-dev libepoxy-dev libfdt-dev libffi-dev libgbm-dev libgcrypt20-dev libglib2.0-dev libglusterfs-dev libgnutls28-dev libgtk-3-dev libibumad-dev libibverbs-dev libiscsi-dev libjemalloc-dev libjpeg-turbo8-dev libjson-c-dev liblttng-ust-dev liblzo2-dev libncursesw5-dev libnfs-dev libnuma-dev libpam0g-dev libpcre2-dev libpixman-1-dev libpmem-dev libpng-dev libpulse-dev librbd-dev librdmacm-dev libsasl2-dev libsdl2-dev libsdl2-image-dev libseccomp-dev libslirp-dev libsnappy-dev libspice-protocol-dev libspice-server-dev libssh-dev libsystemd-dev libtasn1-6-dev libubsan1 libudev-dev liburing-dev libusb-1.0-0-dev libusbredirhost-dev libvdeplug-dev libvirglrenderer-dev libvte-2.91-dev libxen-dev libxml2-dev libzstd-dev llvm locales make meson multipath-tools ncat nettle-dev ninja-build openssh-client pkgconf python3 python3-numpy python3-opencv python3-pillow python3-pip python3-sphinx python3-sphinx-rtd-theme python3-venv python3-yaml rpm2cpio sed sparse systemtap-sdt-dev tar tesseract-ocr tesseract-ocr-eng texinfo xfslibs-dev zlib1g-dev libtasn1-6 libtasn1-6-dev lzfse liblzfse-dev
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Build qemu
+          sudo apt-get install -y build-essential libtool meson ninja-build pkg-config libcapstone-dev device-tree-compiler libglib2.0-dev gnutls-bin libjpeg-turbo8-dev libpng-dev libslirp-dev libssh-dev libusb-1.0-0-dev liblzo2-dev libncurses5-dev libpixman-1-dev libsnappy-dev vde2 zstd libgnutls28-dev libgmp10 libgmp3-dev lzfse liblzfse-dev
+      - name: Build nettle 3.10.1
         run: |
-          mkdir build
-          cd build
-          ../configure --target-list=aarch64-softmmu --disable-capstone --disable-slirp --enable-lzfse --disable-werror
+          wget https://ftp.gnu.org/gnu/nettle/nettle-3.10.1.tar.gz
+          tar -xvf nettle-3.10.1.tar.gz
+          cd nettle-3.10.1
+          ./configure
           make -j$(nproc)
-
-      - name: Install qemu
-        run: |
-          cd build
-          make DESTDIR=$GITHUB_WORKSPACE/bin/ install
-
-      - name: Publish binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: aarch64_softmmu_linux
-          path: ${{ github.workspace }}/bin/
-
-  build_aarch64_softmmu_macos:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install build dependencies
-        run: |
-          brew install ninja pixman lzfse
-
-      - name: Build qemu
+          sudo make install
+      - name: Build
         run: |
           mkdir build
           cd build
-          CFLAGS="$CFLAGS -I/opt/homebrew/include" LDFLAGS="$LDFLAGS -L/opt/homebrew/lib" C_INCLUDE_PATH="$C_INCLUDE_PATH:/opt/homebrew/include" LIBRARY_PATH="$LIBRARY_PATH:/opt/homebrew/lib" LIBTOOL="glibtool" ../configure --target-list=aarch64-softmmu --disable-sdl --disable-gtk --enable-cocoa --enable-lzfse --disable-werror
-          make -j$(sysctl -n hw.logicalcpu)
-
-      - name: Install qemu
-        run: |
-          cd build
-          make DESTDIR=$GITHUB_WORKSPACE/bin/ install
-
-      - name: Publish binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: aarch64_softmmu_macos
-          path: ${{ github.workspace }}/bin/
-
-  build_all_linux:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bash bc bison bsdextrautils bzip2 ca-certificates ccache clang dbus debianutils diffutils exuberant-ctags findutils flex g++ gcc gcovr genisoimage gettext git hostname libaio-dev libasan5 libasound2-dev libattr1-dev libbpf-dev libbrlapi-dev libbz2-dev libc6-dev libcacard-dev libcap-ng-dev libcapstone-dev libcmocka-dev libcurl4-gnutls-dev libdaxctl-dev libdrm-dev libepoxy-dev libfdt-dev libffi-dev libgbm-dev libgcrypt20-dev libglib2.0-dev libglusterfs-dev libgnutls28-dev libgtk-3-dev libibumad-dev libibverbs-dev libiscsi-dev libjemalloc-dev libjpeg-turbo8-dev libjson-c-dev liblttng-ust-dev liblzo2-dev libncursesw5-dev libnfs-dev libnuma-dev libpam0g-dev libpcre2-dev libpixman-1-dev libpmem-dev libpng-dev libpulse-dev librbd-dev librdmacm-dev libsasl2-dev libsdl2-dev libsdl2-image-dev libseccomp-dev libslirp-dev libsnappy-dev libspice-protocol-dev libspice-server-dev libssh-dev libsystemd-dev libtasn1-6-dev libubsan1 libudev-dev liburing-dev libusb-1.0-0-dev libusbredirhost-dev libvdeplug-dev libvirglrenderer-dev libvte-2.91-dev libxen-dev libxml2-dev libzstd-dev llvm locales make meson multipath-tools ncat nettle-dev ninja-build openssh-client pkgconf python3 python3-numpy python3-opencv python3-pillow python3-pip python3-sphinx python3-sphinx-rtd-theme python3-venv python3-yaml rpm2cpio sed sparse systemtap-sdt-dev tar tesseract-ocr tesseract-ocr-eng texinfo xfslibs-dev zlib1g-dev libtasn1-6 libtasn1-6-dev lzfse liblzfse-dev
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Build qemu
-        run: |
-          mkdir build
-          cd build
-          ../configure --enable-lzfse --disable-werror
+          PKG_CONFIG_PATH=/usr/local/lib64/pkgconfig ../configure --target-list=aarch64-softmmu,x86_64-softmmu --enable-capstone --enable-slirp --enable-lzfse --enable-nettle --enable-gnutls --disable-werror
           make -j$(nproc)
-
-      - name: Install qemu
+      - name: Install
         run: |
           cd build
           make DESTDIR=$GITHUB_WORKSPACE/bin/ install
-
       - name: Publish binaries
         uses: actions/upload-artifact@v4
         with:
           name: linux
           path: ${{ github.workspace }}/bin/
 
-  build_all_macos:
-    runs-on: macos-latest
+  build_macos:
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Install build dependencies
+      - name: Install dependencies
         run: |
-          brew install ninja pixman lzfse
-
-      - name: Build qemu
+          brew install libtool meson ninja pkgconf capstone dtc glib gnutls jpeg-turbo libpng libslirp libssh libusb lzo ncurses nettle pixman snappy vde zstd lzfse nettle
+      - name: Build
         run: |
-          mkdir build
-          cd build
-          CFLAGS="$CFLAGS -I/opt/homebrew/include" LDFLAGS="$LDFLAGS -L/opt/homebrew/lib" C_INCLUDE_PATH="$C_INCLUDE_PATH:/opt/homebrew/include" LIBRARY_PATH="$LIBRARY_PATH:/opt/homebrew/lib" LIBTOOL="glibtool" ../configure --disable-sdl --disable-gtk --enable-cocoa --enable-lzfse --disable-werror
+          mkdir build && cd build
+          LIBTOOL="glibtool" ../configure --target-list=aarch64-softmmu,x86_64-softmmu --disable-bsd-user --disable-guest-agent --enable-lzfse --enable-slirp --enable-capstone --enable-curses --enable-libssh --enable-virtfs --enable-zstd --extra-cflags=-DNCURSES_WIDECHAR=1 --disable-sdl --disable-gtk --enable-cocoa --enable-lzfse --enable-nettle --enable-gnutls --disable-werror --extra-cflags="-I/opt/homebrew/include" --extra-ldflags="-L/opt/homebrew/lib"
           make -j$(sysctl -n hw.logicalcpu)
-
-      - name: Install qemu
+      - name: Install
         run: |
           cd build
           make DESTDIR=$GITHUB_WORKSPACE/bin/ install
-
       - name: Publish binaries
         uses: actions/upload-artifact@v4
         with:
-          name: macos
+          name: macos_aarch64
+          path: ${{ github.workspace }}/bin/
+
+  build_macos_x86_64:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install dependencies
+        run: |
+          brew install libtool meson ninja pkgconf capstone dtc glib gnutls jpeg-turbo libpng libslirp libssh libusb lzo ncurses nettle pixman snappy vde zstd lzfse nettle
+      - name: Build
+        run: |
+          mkdir build && cd build
+          LIBTOOL="glibtool" ../configure --target-list=aarch64-softmmu,x86_64-softmmu --disable-bsd-user --disable-guest-agent --enable-lzfse --enable-slirp --enable-capstone --enable-curses --enable-libssh --enable-virtfs --enable-zstd --extra-cflags=-DNCURSES_WIDECHAR=1 --disable-sdl --disable-gtk --enable-cocoa --enable-lzfse --enable-nettle --enable-gnutls --disable-werror --extra-cflags="-I/opt/homebrew/include" --extra-ldflags="-L/opt/homebrew/lib"
+          make -j$(sysctl -n hw.logicalcpu)
+      - name: Install
+        run: |
+          cd build
+          make DESTDIR=$GITHUB_WORKSPACE/bin/ install
+      - name: Publish binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos_x86_64
           path: ${{ github.workspace }}/bin/

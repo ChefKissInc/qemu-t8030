@@ -9,7 +9,7 @@ system_ss.add(when: 'CONFIG_USB', if_true: files(
   'desc-msos.c',
   'libhw.c',
   'pcap.c',
-))
+), if_false: files('bus-stub.c'))
 
 system_ss.add(when: 'CONFIG_APPLE_OTG', if_true: files('apple_otg.c'))
 system_ss.add(when: 'CONFIG_APPLE_TYPEC', if_true: files('apple_typec.c'))
@@ -27,11 +27,9 @@ system_ss.add(when: 'CONFIG_USB_XHCI', if_true: files('hcd-xhci.c'))
 system_ss.add(when: 'CONFIG_USB_XHCI_PCI', if_true: files('hcd-xhci-pci.c'))
 system_ss.add(when: 'CONFIG_USB_XHCI_SYSBUS', if_true: files('hcd-xhci-sysbus.c'))
 system_ss.add(when: 'CONFIG_USB_XHCI_NEC', if_true: files('hcd-xhci-nec.c'))
-system_ss.add(when: 'CONFIG_USB_MUSB', if_true: files('hcd-musb.c'))
 system_ss.add(when: 'CONFIG_USB_DWC2', if_true: files('hcd-dwc2.c'))
 system_ss.add(when: 'CONFIG_USB_DWC3', if_true: files('hcd-dwc3.c'))
 
-system_ss.add(when: 'CONFIG_TUSB6010', if_true: files('tusb6010.c'))
 system_ss.add(when: 'CONFIG_IMX', if_true: files('chipidea.c'))
 system_ss.add(when: 'CONFIG_IMX_USBPHY', if_true: files('imx-usb-phy.c'))
 system_ss.add(when: 'CONFIG_VT82C686', if_true: files('vt82c686-uhci-pci.c'))
@@ -39,8 +37,8 @@ system_ss.add(when: 'CONFIG_XLNX_VERSAL', if_true: files('xlnx-versal-usb2-ctrl-
 system_ss.add(when: 'CONFIG_XLNX_USB_SUBSYS', if_true: files('xlnx-usb-subsystem.c'))
 
 # emulated usb devices
-system_ss.add(when: 'CONFIG_USB', if_true: files('dev-hub.c'))
-system_ss.add(when: 'CONFIG_USB', if_true: files('dev-hid.c'))
+system_ss.add(when: 'CONFIG_USB_HUB', if_true: files('dev-hub.c'))
+system_ss.add(when: 'CONFIG_USB_HID', if_true: files('dev-hid.c'))
 system_ss.add(when: 'CONFIG_USB_TABLET_WACOM', if_true: files('dev-wacom.c'))
 system_ss.add(when: 'CONFIG_USB_STORAGE_CORE', if_true: files('dev-storage.c'))
 system_ss.add(when: 'CONFIG_USB_STORAGE_BOT', if_true: files('dev-storage-bot.c'))

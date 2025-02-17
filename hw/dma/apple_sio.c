@@ -1,18 +1,13 @@
 #include "qemu/osdep.h"
-#include "hw/arm/apple-silicon/boot.h"
 #include "hw/arm/apple-silicon/dtb.h"
 #include "hw/dma/apple_sio.h"
-#include "hw/irq.h"
-#include "hw/misc/apple-silicon/a7iop/rtbuddy.h"
-#include "migration/vmstate.h"
+#include "hw/misc/apple-silicon/a7iop/rtkit.h"
+#include "hw/resettable.h"
 #include "qapi/error.h"
-#include "qemu/bitops.h"
 #include "qemu/iov.h"
 #include "qemu/log.h"
 #include "qemu/module.h"
-#include "qemu/queue.h"
 #include "sysemu/dma.h"
-#include "sysemu/runstate.h"
 
 // #define DEBUG_SIO
 
@@ -51,7 +46,7 @@ typedef enum sio_endpoint {
 } sio_endpoint;
 
 typedef enum sio_param_id {
-    PARAM_PROTOCOL = 0, /* Should be 9 for 14.0b5 */
+    PARAM_PROTOCOL = 0,
     PARAM_DMA_SEGMENT_BASE = 1,
     PARAM_DMA_SEGMENT_SIZE = 2,
     PARAM_DMA_RESPONSE_BASE = 11,
@@ -145,17 +140,17 @@ static void apple_sio_unmap_dma(AppleSIOState *s, AppleSIODMAEndpoint *ep)
 
 static void apple_sio_dma_writeback(AppleSIOState *s, AppleSIODMAEndpoint *ep)
 {
-    AppleRTBuddy *rtb;
+    AppleRTKit *rtk;
     sio_msg m = { 0 };
 
-    rtb = APPLE_RTBUDDY(s);
+    rtk = APPLE_RTKIT(s);
     m.op = OP_DMA_COMPLETE;
     m.ep = ep->id;
     m.param = (1 << 7);
     m.tag = ep->tag;
     m.data = ep->actual_length;
     apple_sio_unmap_dma(s, ep);
-    apple_rtbuddy_send_user_msg(rtb, 0, m.raw);
+    apple_rtkit_send_user_msg(rtk, 0, m.raw);
 }
 
 int apple_sio_dma_read(AppleSIODMAEndpoint *ep, void *buffer, size_t len)
@@ -196,37 +191,37 @@ int apple_sio_dma_remaining(AppleSIODMAEndpoint *ep)
 }
 
 static void apple_sio_control(AppleSIOState *s, AppleSIODMAEndpoint *ep,
-                              sio_msg m)
+                              sio_msg *m)
 {
-    AppleRTBuddy *rtb;
+    AppleRTKit *rtk;
     sio_msg reply = { 0 };
 
-    rtb = APPLE_RTBUDDY(s);
-    reply.ep = m.ep;
-    reply.tag = m.tag;
-    switch (m.op) {
+    rtk = APPLE_RTKIT(s);
+    reply.ep = m->ep;
+    reply.tag = m->tag;
+    switch (m->op) {
     case OP_GET_PARAM: {
-        reply.data = s->params[m.param];
+        reply.data = s->params[m->param];
         reply.op = OP_GET_PARAM_RETURN;
         break;
     }
     case OP_SET_PARAM: {
-        s->params[m.param] = m.data;
+        s->params[m->param] = m->data;
         reply.op = OP_ACK;
         break;
     }
     default:
         break;
     }
-    apple_rtbuddy_send_user_msg(rtb, 0, reply.raw);
+    apple_rtkit_send_user_msg(rtk, 0, reply.raw);
 };
 
 static void apple_sio_dma(AppleSIOState *s, AppleSIODMAEndpoint *ep, sio_msg m)
 {
-    AppleRTBuddy *rtb;
+    AppleRTKit *rtk;
     sio_msg reply = { 0 };
 
-    rtb = APPLE_RTBUDDY(s);
+    rtk = APPLE_RTKIT(s);
     reply.ep = m.ep;
     reply.tag = m.tag;
     switch (m.op) {
@@ -293,7 +288,7 @@ static void apple_sio_dma(AppleSIOState *s, AppleSIODMAEndpoint *ep, sio_msg m)
         reply.op = OP_ERROR;
         break;
     }
-    apple_rtbuddy_send_user_msg(rtb, 0, reply.raw);
+    apple_rtkit_send_user_msg(rtk, 0, reply.raw);
 };
 
 static void apple_sio_handle_endpoint(void *opaque, uint32_t ep, uint64_t msg)
@@ -307,7 +302,7 @@ static void apple_sio_handle_endpoint(void *opaque, uint32_t ep, uint64_t msg)
     switch (m.ep) {
     case EP_CONTROL:
     case EP_PERF:
-        apple_sio_control(sio, &sio->eps[EP_CONTROL], m);
+        apple_sio_control(sio, &sio->eps[EP_CONTROL], &m);
         break;
     default:
         if (m.ep >= SIO_NUM_EPS) {
@@ -332,7 +327,7 @@ AppleSIODMAEndpoint *apple_sio_get_endpoint(AppleSIOState *s, int ep)
 AppleSIODMAEndpoint *apple_sio_get_endpoint_from_node(AppleSIOState *s,
                                                       DTBNode *node, int idx)
 {
-    DTBProp *prop = find_dtb_prop(node, "dma-channels");
+    DTBProp *prop = dtb_find_prop(node, "dma-channels");
     uint32_t *data;
     int count;
     if (!prop) {
@@ -342,7 +337,7 @@ AppleSIODMAEndpoint *apple_sio_get_endpoint_from_node(AppleSIOState *s,
     if (idx >= count) {
         return NULL;
     }
-    data = (uint32_t *)prop->value;
+    data = (uint32_t *)prop->data;
     return apple_sio_get_endpoint(s, data[8 * idx]);
 }
 
@@ -384,38 +379,35 @@ SysBusDevice *apple_sio_create(DTBNode *node, AppleA7IOPVersion version,
     DeviceState *dev;
     AppleSIOState *s;
     SysBusDevice *sbd;
-    AppleRTBuddy *rtb;
+    AppleRTKit *rtk;
     DTBNode *child;
     DTBProp *prop;
     uint64_t *reg;
-    uint32_t data;
 
     dev = qdev_new(TYPE_APPLE_SIO);
     s = APPLE_SIO(dev);
     sbd = SYS_BUS_DEVICE(dev);
-    rtb = APPLE_RTBUDDY(dev);
+    rtk = APPLE_RTKIT(dev);
     dev->id = g_strdup("sio");
 
-    child = find_dtb_node(node, "iop-sio-nub");
-    assert(child);
+    child = dtb_get_node(node, "iop-sio-nub");
+    g_assert_nonnull(child);
 
-    prop = find_dtb_prop(node, "reg");
-    assert(prop);
+    prop = dtb_find_prop(node, "reg");
+    g_assert_nonnull(prop);
 
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
 
-    apple_rtbuddy_init(rtb, NULL, "SIO", reg[1], version, protocol_version,
-                       NULL);
-    apple_rtbuddy_register_user_ep(rtb, 0, s, apple_sio_handle_endpoint);
+    apple_rtkit_init(rtk, NULL, "SIO", reg[1], version, protocol_version, NULL);
+    apple_rtkit_register_user_ep(rtk, 0, s, apple_sio_handle_endpoint);
 
     memory_region_init_io(&s->ascv2_iomem, OBJECT(dev), &ascv2_core_reg_ops, s,
                           TYPE_APPLE_SIO ".ascv2-core-reg", reg[3]);
     sysbus_init_mmio(sbd, &s->ascv2_iomem);
 
-    data = 1;
-    set_dtb_prop(child, "pre-loaded", 4, (uint8_t *)&data);
+    dtb_set_prop_u32(child, "pre-loaded", 1);
 #if 0
-    set_dtb_prop(child, "running", 4, (uint8_t *)&data);
+    dtb_set_prop_u32(child, "running", 1);
 #endif
 
     return sbd;
@@ -445,15 +437,15 @@ static void apple_sio_realize(DeviceState *dev, Error **errp)
     }
 }
 
-static void apple_sio_reset(DeviceState *dev)
+static void apple_sio_reset_hold(Object *obj, ResetType type)
 {
     AppleSIOState *s;
     AppleSIOClass *sioc;
 
-    s = APPLE_SIO(dev);
-    sioc = APPLE_SIO_GET_CLASS(dev);
-    if (sioc->parent_reset) {
-        sioc->parent_reset(dev);
+    s = APPLE_SIO(obj);
+    sioc = APPLE_SIO_GET_CLASS(obj);
+    if (sioc->parent_reset.hold != NULL) {
+        sioc->parent_reset.hold(obj, type);
     }
     s->params[PARAM_PROTOCOL] = 9;
     for (int i = 0; i < SIO_NUM_EPS; i++) {
@@ -466,21 +458,24 @@ static void apple_sio_reset(DeviceState *dev)
 
 static void apple_sio_class_init(ObjectClass *klass, void *data)
 {
+    ResettableClass *rc;
     DeviceClass *dc;
     AppleSIOClass *sioc;
 
+    rc = RESETTABLE_CLASS(klass);
     dc = DEVICE_CLASS(klass);
     sioc = APPLE_SIO_CLASS(klass);
 
     device_class_set_parent_realize(dc, apple_sio_realize,
                                     &sioc->parent_realize);
-    device_class_set_parent_reset(dc, apple_sio_reset, &sioc->parent_reset);
+    resettable_class_set_parent_phases(rc, NULL, apple_sio_reset_hold, NULL,
+                                       &sioc->parent_reset);
     dc->desc = "Apple Smart IO DMA Controller";
 }
 
 static const TypeInfo apple_sio_info = {
     .name = TYPE_APPLE_SIO,
-    .parent = TYPE_APPLE_RTBUDDY,
+    .parent = TYPE_APPLE_RTKIT,
     .instance_size = sizeof(AppleSIOState),
     .class_size = sizeof(AppleSIOClass),
     .class_init = apple_sio_class_init,

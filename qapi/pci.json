@@ -33,6 +33,8 @@
 #     - 'io' if the region is a PIO region
 #     - 'memory' if the region is a MMIO region
 #
+# @address: memory address
+#
 # @size: memory size
 #
 # @prefetch: if @type is 'memory', true if the memory is prefetchable
@@ -93,7 +95,8 @@
 #
 # Information about the Class of a PCI device
 #
-# @desc: a string description of the device's class
+# @desc: a string description of the device's class (not stable, and
+#     should only be treated as informational)
 #
 # @class: the class code of the device
 #
@@ -146,9 +149,6 @@
 #
 # @regions: a list of the PCI I/O regions associated with the device
 #
-# Notes: the contents of @class_info.desc are not stable and should
-#     only be treated as informational.
-#
 # Since: 0.14
 ##
 { 'struct': 'PciDeviceInfo',
@@ -182,7 +182,7 @@
 #
 # Since: 0.14
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "query-pci" }
 #     <- { "return": [
@@ -311,7 +311,6 @@
 #           ]
 #        }
 #
-# Note: This example has been shortened as the real response is too
-#     long.
+# This example has been shortened as the real response is too long.
 ##
 { 'command': 'query-pci', 'returns': ['PciInfo'] }

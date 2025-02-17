@@ -4,7 +4,6 @@
 #include "qemu/osdep.h"
 #include "hw/arm/apple-silicon/dtb.h"
 #include "hw/sysbus.h"
-#include "qemu/queue.h"
 #include "qom/object.h"
 
 typedef struct AppleSARTState AppleSARTState;

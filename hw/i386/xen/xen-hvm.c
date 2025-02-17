@@ -457,11 +457,12 @@ static void xen_log_sync(MemoryListener *listener, MemoryRegionSection *section)
                           int128_get64(section->size));
 }
 
-static void xen_log_global_start(MemoryListener *listener)
+static bool xen_log_global_start(MemoryListener *listener, Error **errp)
 {
     if (xen_enabled()) {
         xen_in_migration = true;
     }
+    return true;
 }
 
 static void xen_log_global_stop(MemoryListener *listener)
@@ -583,6 +584,26 @@ static void xen_wakeup_notifier(Notifier *notifier, void *data)
     xc_set_hvm_param(xen_xc, xen_domid, HVM_PARAM_ACPI_S_STATE, 0);
 }
 
+static bool xen_check_stubdomain(struct xs_handle *xsh)
+{
+    char *dm_path = g_strdup_printf(
+        "/local/domain/%d/image/device-model-domid", xen_domid);
+    char *val;
+    int32_t dm_domid;
+    bool is_stubdom = false;
+
+    val = xs_read(xsh, 0, dm_path, NULL);
+    if (val) {
+        if (sscanf(val, "%d", &dm_domid) == 1) {
+            is_stubdom = dm_domid != 0;
+        }
+        free(val);
+    }
+
+    g_free(dm_path);
+    return is_stubdom;
+}
+
 void xen_hvm_init_pc(PCMachineState *pcms, MemoryRegion **ram_memory)
 {
     MachineState *ms = MACHINE(pcms);
@@ -593,7 +614,11 @@ void xen_hvm_init_pc(PCMachineState *pcms, MemoryRegion **ram_memory)
 
     state = g_new0(XenIOState, 1);
 
-    xen_register_ioreq(state, max_cpus, &xen_memory_listener);
+    xen_register_ioreq(state, max_cpus,
+                       HVM_IOREQSRV_BUFIOREQ_ATOMIC,
+                       &xen_memory_listener);
+
+    xen_is_stubdomain = xen_check_stubdomain(state->xenstore);
 
     QLIST_INIT(&xen_physmap);
     xen_read_physmap(state);
@@ -668,7 +693,7 @@ void xen_hvm_modified_memory(ram_addr_t start, ram_addr_t length)
 void qmp_xen_set_global_dirty_log(bool enable, Error **errp)
 {
     if (enable) {
-        memory_global_dirty_log_start(GLOBAL_DIRTY_MIGRATION);
+        memory_global_dirty_log_start(GLOBAL_DIRTY_MIGRATION, errp);
     } else {
         memory_global_dirty_log_stop(GLOBAL_DIRTY_MIGRATION);
     }

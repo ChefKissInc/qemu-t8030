@@ -19,6 +19,7 @@
 #include "qemu/osdep.h"
 #include "chardev/char-fe.h"
 #include "chardev/char-serial.h"
+#include "hw/qdev-core.h"
 #include "hw/sysbus.h"
 #include "migration/vmstate.h"
 #include "qapi/error.h"
@@ -636,7 +637,7 @@ static void apple_uart_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
 
     dc->realize = apple_uart_realize;
-    dc->reset = apple_uart_reset;
+    device_class_set_legacy_reset(dc, apple_uart_reset);
     device_class_set_props(dc, apple_uart_properties);
     dc->vmsd = &vmstate_apple_uart;
 }

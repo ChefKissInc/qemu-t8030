@@ -18,7 +18,7 @@
 #include "sysemu/block-backend.h"
 #include "qom/object.h"
 
-/* #define DEBUG_AT24C */
+//#define DEBUG_AT24C
 
 #ifdef DEBUG_AT24C
 #define DPRINTK(FMT, ...) printf(TYPE_AT24C_EE " : " FMT, ## __VA_ARGS__)
@@ -29,38 +29,6 @@
 #define ERR(FMT, ...) fprintf(stderr, TYPE_AT24C_EE " : " FMT, \
                             ## __VA_ARGS__)
 
-#define TYPE_AT24C_EE "at24c-eeprom"
-typedef struct EEPROMState EEPROMState;
-DECLARE_INSTANCE_CHECKER(EEPROMState, AT24C_EE,
-                         TYPE_AT24C_EE)
-
-struct EEPROMState {
-    I2CSlave parent_obj;
-
-    /* address counter */
-    uint16_t cur;
-    /* total size in bytes */
-    uint32_t rsize;
-    /*
-     * address byte number
-     *  for  24c01, 24c02 size <= 256 byte, use only 1 byte
-     *  otherwise size > 256, use 2 byte
-     */
-    uint8_t asize;
-
-    bool writable;
-    /* cells changed since last START? */
-    bool changed;
-    /* during WRITE, # of address bytes transferred */
-    uint8_t haveaddr;
-
-    uint8_t *mem;
-
-    BlockBackend *blk;
-
-    const uint8_t *init_rom;
-    uint32_t init_rom_size;
-};
 
 static
 int at24c_eeprom_event(I2CSlave *s, enum i2c_event event)
@@ -71,6 +39,7 @@ int at24c_eeprom_event(I2CSlave *s, enum i2c_event event)
     case I2C_START_SEND:
     case I2C_FINISH:
         ee->haveaddr = 0;
+        //ee->cur = 0;
         /* fallthrough */
     case I2C_START_RECV:
         DPRINTK("clear\n");
@@ -108,8 +77,10 @@ uint8_t at24c_eeprom_recv(I2CSlave *s)
 
     ret = ee->mem[ee->cur];
 
+    DPRINTK("Prev recv cur=0x%x\n", ee->cur);
     ee->cur = (ee->cur + 1u) % ee->rsize;
-    DPRINTK("Recv %02x %c\n", ret, ret);
+    //DPRINTK("Recv %02x %c\n", ret, ret);
+    DPRINTK("Recv next_cur=0x%x %02x %c\n", ee->cur, ret, ret);
 
     return ret;
 }
@@ -120,12 +91,16 @@ int at24c_eeprom_send(I2CSlave *s, uint8_t data)
     EEPROMState *ee = AT24C_EE(s);
 
     if (ee->haveaddr < ee->asize) {
+        if (!ee->haveaddr) {
+            ee->cur = 0;
+        }
         ee->cur <<= 8;
         ee->cur |= data;
         ee->haveaddr++;
         if (ee->haveaddr == ee->asize) {
+            DPRINTK("haveaddr=0x%x; asize=0x%x; rsize=0x%x; cur=0x%x\n", ee->haveaddr, ee->asize, ee->rsize, ee->cur);
             ee->cur %= ee->rsize;
-            DPRINTK("Set pointer %04x\n", ee->cur);
+            DPRINTK("Set pointer %08x\n", ee->cur);
         }
 
     } else {
@@ -156,6 +131,28 @@ I2CSlave *at24c_eeprom_init_rom(I2CBus *bus, uint8_t address, uint32_t rom_size,
     s = AT24C_EE(i2c_slave_new(TYPE_AT24C_EE, address));
 
     qdev_prop_set_uint32(DEVICE(s), "rom-size", rom_size);
+
+    /* TODO: Model init_rom with QOM properties. */
+    s->init_rom = init_rom;
+    s->init_rom_size = init_rom_size;
+
+    i2c_slave_realize_and_unref(I2C_SLAVE(s), bus, &error_abort);
+
+    return I2C_SLAVE(s);
+}
+
+I2CSlave *at24c_eeprom_init_rom_blk(I2CBus *bus, uint8_t address, uint32_t rom_size,
+                                const uint8_t *init_rom, uint32_t init_rom_size, uint32_t address_size, BlockBackend *blk)
+{
+    EEPROMState *s;
+
+    s = AT24C_EE(i2c_slave_new(TYPE_AT24C_EE, address));
+
+    qdev_prop_set_uint32(DEVICE(s), "rom-size", rom_size);
+    qdev_prop_set_uint32(DEVICE(s), "address-size", address_size);
+    if (blk) {
+        qdev_prop_set_drive_err(DEVICE(s), "drive", blk, &error_fatal);
+    }
 
     /* TODO: Model init_rom with QOM properties. */
     s->init_rom = init_rom;
@@ -254,7 +251,7 @@ void at24c_eeprom_class_init(ObjectClass *klass, void *data)
     k->send = &at24c_eeprom_send;
 
     device_class_set_props(dc, at24c_eeprom_props);
-    dc->reset = at24c_eeprom_reset;
+    device_class_set_legacy_reset(dc, at24c_eeprom_reset);
 }
 
 static

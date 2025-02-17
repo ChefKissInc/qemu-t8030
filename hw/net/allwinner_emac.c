@@ -349,7 +349,7 @@ static void aw_emac_write(void *opaque, hwaddr offset, uint64_t value,
                               "allwinner_emac: TX length > fifo data length\n");
             }
             if (len > 0) {
-                data = fifo8_pop_buf(fifo, len, &ret);
+                data = fifo8_pop_bufptr(fifo, len, &ret);
                 qemu_send_packet(nc, data, ret);
                 aw_emac_tx_reset(s, chan);
                 /* Raise TX interrupt */
@@ -521,7 +521,7 @@ static void aw_emac_class_init(ObjectClass *klass, void *data)
 
     dc->realize = aw_emac_realize;
     device_class_set_props(dc, aw_emac_properties);
-    dc->reset = aw_emac_reset;
+    device_class_set_legacy_reset(dc, aw_emac_reset);
     dc->vmsd = &vmstate_aw_emac;
 }
 

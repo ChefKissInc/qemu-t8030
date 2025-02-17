@@ -37,22 +37,11 @@ struct zstd_data {
 
 /* Multifd zstd compression */
 
-/**
- * zstd_send_setup: setup send side
- *
- * Setup each channel with zstd compression.
- *
- * Returns 0 for success or -1 for error
- *
- * @p: Params for the channel that we are using
- * @errp: pointer to an error
- */
-static int zstd_send_setup(MultiFDSendParams *p, Error **errp)
+static int multifd_zstd_send_setup(MultiFDSendParams *p, Error **errp)
 {
     struct zstd_data *z = g_new0(struct zstd_data, 1);
     int res;
 
-    p->compress_data = z;
     z->zcs = ZSTD_createCStream();
     if (!z->zcs) {
         g_free(z);
@@ -77,18 +66,14 @@ static int zstd_send_setup(MultiFDSendParams *p, Error **errp)
         error_setg(errp, "multifd %u: out of memory for zbuff", p->id);
         return -1;
     }
+    p->compress_data = z;
+
+    /* Needs 2 IOVs, one for packet header and one for compressed data */
+    p->iov = g_new0(struct iovec, 2);
     return 0;
 }
 
-/**
- * zstd_send_cleanup: cleanup send side
- *
- * Close the channel and return memory.
- *
- * @p: Params for the channel that we are using
- * @errp: pointer to an error
- */
-static void zstd_send_cleanup(MultiFDSendParams *p, Error **errp)
+static void multifd_zstd_send_cleanup(MultiFDSendParams *p, Error **errp)
 {
     struct zstd_data *z = p->compress_data;
 
@@ -98,22 +83,14 @@ static void zstd_send_cleanup(MultiFDSendParams *p, Error **errp)
     z->zbuff = NULL;
     g_free(p->compress_data);
     p->compress_data = NULL;
+
+    g_free(p->iov);
+    p->iov = NULL;
 }
 
-/**
- * zstd_send_prepare: prepare date to be able to send
- *
- * Create a compressed buffer with all the pages that we are going to
- * send.
- *
- * Returns 0 for success or -1 for error
- *
- * @p: Params for the channel that we are using
- * @errp: pointer to an error
- */
-static int zstd_send_prepare(MultiFDSendParams *p, Error **errp)
+static int multifd_zstd_send_prepare(MultiFDSendParams *p, Error **errp)
 {
-    MultiFDPages_t *pages = p->pages;
+    MultiFDPages_t *pages = &p->data->u.ram;
     struct zstd_data *z = p->compress_data;
     int ret;
     uint32_t i;
@@ -132,8 +109,8 @@ static int zstd_send_prepare(MultiFDSendParams *p, Error **errp)
         if (i == pages->normal_num - 1) {
             flush = ZSTD_e_flush;
         }
-        z->in.src = p->pages->block->host + pages->offset[i];
-        z->in.size = p->page_size;
+        z->in.src = pages->block->host + pages->offset[i];
+        z->in.size = multifd_ram_page_size();
         z->in.pos = 0;
 
         /*
@@ -146,9 +123,9 @@ static int zstd_send_prepare(MultiFDSendParams *p, Error **errp)
          */
         do {
             ret = ZSTD_compressStream2(z->zcs, &z->out, &z->in, flush);
-        } while (ret > 0 && (z->in.size - z->in.pos > 0)
-                         && (z->out.size - z->out.pos > 0));
-        if (ret > 0 && (z->in.size - z->in.pos > 0)) {
+        } while (ret > 0 && (z->in.size > z->in.pos)
+                         && (z->out.size > z->out.pos));
+        if (ret > 0 && (z->in.size > z->in.pos)) {
             error_setg(errp, "multifd %u: compressStream buffer too small",
                        p->id);
             return -1;
@@ -170,17 +147,7 @@ out:
     return 0;
 }
 
-/**
- * zstd_recv_setup: setup receive side
- *
- * Create the compressed channel and buffer.
- *
- * Returns 0 for success or -1 for error
- *
- * @p: Params for the channel that we are using
- * @errp: pointer to an error
- */
-static int zstd_recv_setup(MultiFDRecvParams *p, Error **errp)
+static int multifd_zstd_recv_setup(MultiFDRecvParams *p, Error **errp)
 {
     struct zstd_data *z = g_new0(struct zstd_data, 1);
     int ret;
@@ -214,14 +181,7 @@ static int zstd_recv_setup(MultiFDRecvParams *p, Error **errp)
     return 0;
 }
 
-/**
- * zstd_recv_cleanup: setup receive side
- *
- * For no compression this function does nothing.
- *
- * @p: Params for the channel that we are using
- */
-static void zstd_recv_cleanup(MultiFDRecvParams *p)
+static void multifd_zstd_recv_cleanup(MultiFDRecvParams *p)
 {
     struct zstd_data *z = p->compress_data;
 
@@ -233,22 +193,12 @@ static void zstd_recv_cleanup(MultiFDRecvParams *p)
     p->compress_data = NULL;
 }
 
-/**
- * zstd_recv: read the data from the channel into actual pages
- *
- * Read the compressed buffer, and uncompress it into the actual
- * pages.
- *
- * Returns 0 for success or -1 for error
- *
- * @p: Params for the channel that we are using
- * @errp: pointer to an error
- */
-static int zstd_recv(MultiFDRecvParams *p, Error **errp)
+static int multifd_zstd_recv(MultiFDRecvParams *p, Error **errp)
 {
     uint32_t in_size = p->next_packet_size;
     uint32_t out_size = 0;
-    uint32_t expected_size = p->normal_num * p->page_size;
+    uint32_t page_size = multifd_ram_page_size();
+    uint32_t expected_size = p->normal_num * page_size;
     uint32_t flags = p->flags & MULTIFD_FLAG_COMPRESSION_MASK;
     struct zstd_data *z = p->compress_data;
     int ret;
@@ -278,8 +228,9 @@ static int zstd_recv(MultiFDRecvParams *p, Error **errp)
     z->in.pos = 0;
 
     for (i = 0; i < p->normal_num; i++) {
+        ramblock_recv_bitmap_set_offset(p->block, p->normal[i]);
         z->out.dst = p->host + p->normal[i];
-        z->out.size = p->page_size;
+        z->out.size = page_size;
         z->out.pos = 0;
 
         /*
@@ -292,9 +243,9 @@ static int zstd_recv(MultiFDRecvParams *p, Error **errp)
          */
         do {
             ret = ZSTD_decompressStream(z->zds, &z->out, &z->in);
-        } while (ret > 0 && (z->in.size - z->in.pos > 0)
-                         && (z->out.pos < p->page_size));
-        if (ret > 0 && (z->out.pos < p->page_size)) {
+        } while (ret > 0 && (z->in.size > z->in.pos)
+                         && (z->out.pos < page_size));
+        if (ret > 0 && (z->out.pos < page_size)) {
             error_setg(errp, "multifd %u: decompressStream buffer too small",
                        p->id);
             return -1;
@@ -314,13 +265,13 @@ static int zstd_recv(MultiFDRecvParams *p, Error **errp)
     return 0;
 }
 
-static MultiFDMethods multifd_zstd_ops = {
-    .send_setup = zstd_send_setup,
-    .send_cleanup = zstd_send_cleanup,
-    .send_prepare = zstd_send_prepare,
-    .recv_setup = zstd_recv_setup,
-    .recv_cleanup = zstd_recv_cleanup,
-    .recv = zstd_recv
+static const MultiFDMethods multifd_zstd_ops = {
+    .send_setup = multifd_zstd_send_setup,
+    .send_cleanup = multifd_zstd_send_cleanup,
+    .send_prepare = multifd_zstd_send_prepare,
+    .recv_setup = multifd_zstd_recv_setup,
+    .recv_cleanup = multifd_zstd_recv_cleanup,
+    .recv = multifd_zstd_recv
 };
 
 static void multifd_zstd_register(void)

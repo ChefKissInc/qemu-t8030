@@ -59,7 +59,7 @@
 #
 # Since: 1.2
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "qom-list",
 #          "arguments": { "path": "/chardevs" } }
@@ -104,16 +104,16 @@
 #
 # Since: 1.2
 #
-# Examples:
-#
-#     1. Use absolute path
+# .. qmp-example::
+#    :title: Use absolute path
 #
 #     -> { "execute": "qom-get",
 #          "arguments": { "path": "/machine/unattached/device[0]",
 #                         "property": "hotplugged" } }
 #     <- { "return": false }
 #
-#     2. Use partial path
+# .. qmp-example::
+#    :title: Use partial path
 #
 #     -> { "execute": "qom-get",
 #          "arguments": { "path": "unattached/sysbus",
@@ -139,7 +139,7 @@
 #
 # Since: 1.2
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "qom-set",
 #          "arguments": { "path": "/machine",
@@ -195,9 +195,9 @@
 #
 # @typename: the type name of an object
 #
-# Note: objects can create properties at runtime, for example to
-#     describe links between different devices and/or objects.  These
-#     properties are not included in the output of this command.
+# .. note:: Objects can create properties at runtime, for example to
+#    describe links between different devices and/or objects.  These
+#    properties are not included in the output of this command.
 #
 # Returns: a list of ObjectPropertyInfo describing object properties
 #
@@ -222,7 +222,8 @@
 ##
 { 'struct': 'CanHostSocketcanProperties',
   'data': { 'if': 'str',
-            'canbus': 'str' } }
+            'canbus': 'str' },
+  'if': 'CONFIG_LINUX' }
 
 ##
 # @ColoCompareProperties:
@@ -305,7 +306,8 @@
 ##
 { 'struct': 'CryptodevVhostUserProperties',
   'base': 'CryptodevBackendProperties',
-  'data': { 'chardev': 'str' } }
+  'data': { 'chardev': 'str' },
+  'if': 'CONFIG_VHOST_CRYPTO' }
 
 ##
 # @DBusVMStateProperties:
@@ -354,7 +356,7 @@
 #     filter list.  "head" means the filter is inserted at the head of
 #     the filter list, before any existing filters.  "tail" means the
 #     filter is inserted at the tail of the filter list, behind any
-#     existing filters (default). "id=<id>" means the filter is
+#     existing filters (default).  "id=<id>" means the filter is
 #     inserted before or behind the filter specified by <id>,
 #     depending on the @insert property.  (default: "tail")
 #
@@ -514,7 +516,8 @@
   'data': { 'evdev': 'str',
             '*grab_all': 'bool',
             '*repeat': 'bool',
-            '*grab-toggle': 'GrabToggleKeys' } }
+            '*grab-toggle': 'GrabToggleKeys' },
+  'if': 'CONFIG_LINUX' }
 
 ##
 # @EventLoopBaseProperties:
@@ -600,7 +603,9 @@
 #     preallocation threads (default: none) (since 7.2)
 #
 # @share: if false, the memory is private to QEMU; if true, it is
-#     shared (default: false)
+#     shared (default false for backends memory-backend-file and
+#     memory-backend-ram, true for backends memory-backend-epc,
+#     memory-backend-memfd, and memory-backend-shm)
 #
 # @reserve: if true, reserve swap space (or huge pages) if applicable
 #     (default: true) (since 6.1)
@@ -612,12 +617,11 @@
 #     older to allow migration with newer QEMU versions.
 #     (default: false generally, but true for machine types <= 4.0)
 #
-# Note: prealloc=true and reserve=false cannot be set at the same
-#     time.  With reserve=true, the behavior depends on the operating
-#     system: for example, Linux will not reserve swap space for
-#     shared file mappings -- "not applicable". In contrast,
-#     reserve=false will bail out if it cannot be configured
-#     accordingly.
+# .. note:: prealloc=true and reserve=false cannot be set at the same
+#    time.  With reserve=true, the behavior depends on the operating
+#    system: for example, Linux will not reserve swap space for shared
+#    file mappings -- "not applicable".  In contrast, reserve=false
+#    will bail out if it cannot be configured accordingly.
 #
 # Since: 2.1
 ##
@@ -642,9 +646,9 @@
 # @align: the base address alignment when QEMU mmap(2)s @mem-path.
 #     Some backend stores specified by @mem-path require an alignment
 #     different than the default one used by QEMU, e.g. the device DAX
-#     /dev/dax0.0 requires 2M alignment rather than 4K. In such cases,
-#     users can specify the required alignment via this option.  0
-#     selects a default alignment (currently the page size).
+#     /dev/dax0.0 requires 2M alignment rather than 4K.  In such
+#     cases, users can specify the required alignment via this option.
+#     0 selects a default alignment (currently the page size).
 #     (default: 0)
 #
 # @offset: the offset into the target file that the region starts at.
@@ -700,14 +704,12 @@
 #
 # Properties for memory-backend-memfd objects.
 #
-# The @share boolean option is true by default with memfd.
-#
 # @hugetlb: if true, the file to be created resides in the hugetlbfs
 #     filesystem (default: false)
 #
 # @hugetlbsize: the hugetlb page size on systems that support multiple
 #     hugetlb page sizes (it must be a power of 2 value supported by
-#     the system). 0 selects a default page size.  This option is
+#     the system).  0 selects a default page size.  This option is
 #     ignored if @hugetlb is false.  (default: 0)
 #
 # @seal: if true, create a sealed-file, which will block further
@@ -719,14 +721,28 @@
   'base': 'MemoryBackendProperties',
   'data': { '*hugetlb': 'bool',
             '*hugetlbsize': 'size',
-            '*seal': 'bool' } }
+            '*seal': 'bool' },
+  'if': 'CONFIG_LINUX' }
+
+##
+# @MemoryBackendShmProperties:
+#
+# Properties for memory-backend-shm objects.
+#
+# This memory backend supports only shared memory, which is the
+# default.
+#
+# Since: 9.1
+##
+{ 'struct': 'MemoryBackendShmProperties',
+  'base': 'MemoryBackendProperties',
+  'data': { },
+  'if': 'CONFIG_POSIX' }
 
 ##
 # @MemoryBackendEpcProperties:
 #
 # Properties for memory-backend-epc objects.
-#
-# The @share boolean option is true by default with epc
 #
 # The @merge boolean option is false by default with epc
 #
@@ -736,7 +752,8 @@
 ##
 { 'struct': 'MemoryBackendEpcProperties',
   'base': 'MemoryBackendProperties',
-  'data': {} }
+  'data': {},
+  'if': 'CONFIG_LINUX' }
 
 ##
 # @PrManagerHelperProperties:
@@ -749,7 +766,8 @@
 # Since: 2.11
 ##
 { 'struct': 'PrManagerHelperProperties',
-  'data': { 'path': 'str' } }
+  'data': { 'path': 'str' },
+  'if': 'CONFIG_LINUX' }
 
 ##
 # @QtestProperties:
@@ -827,6 +845,45 @@
             'node': 'uint32' } }
 
 ##
+# @AcpiGenericPortProperties:
+#
+# Properties for acpi-generic-port objects.
+#
+# @pci-bus: QOM path of the PCI bus of the hostbridge associated with
+#     this SRAT Generic Port Affinity Structure.  This is the same as
+#     the bus parameter for the root ports attached to this host
+#     bridge.  The resulting SRAT Generic Port Affinity Structure will
+#     refer to the ACPI object in DSDT that represents the host bridge
+#     (e.g.  ACPI0016 for CXL host bridges).  See ACPI 6.5 Section
+#     5.2.16.7 for more information.
+#
+# @node: Similar to a NUMA node ID, but instead of providing a
+#     reference point used for defining NUMA distances and access
+#     characteristics to memory or from an initiator (e.g. CPU), this
+#     node defines the boundary point between non-discoverable system
+#     buses which must be described by firmware, and a discoverable
+#     bus.  NUMA distances and access characteristics are defined to
+#     and from that point.  For system software to establish full
+#     initiator to target characteristics this information must be
+#     combined with information retrieved from the discoverable part
+#     of the path.  An example would use CDAT (see UEFI.org)
+#     information read from devices and switches in conjunction with
+#     link characteristics read from PCIe Configuration space.
+#     To get the full path latency from CPU to CXL attached DRAM
+#     CXL device:  Add the latency from CPU to Generic Port (from
+#     HMAT indexed via the the node ID in this SRAT structure) to
+#     that for CXL bus links, the latency across intermediate switches
+#     and from the EP port to the actual memory.  Bandwidth is more
+#     complex as there may be interleaving across multiple devices
+#     and shared links in the path.
+#
+# Since: 9.2
+##
+{ 'struct': 'AcpiGenericPortProperties',
+  'data': { 'pci-bus': 'str',
+            'node': 'uint32' } }
+
+##
 # @RngProperties:
 #
 # Properties for objects of classes derived from rng.
@@ -872,22 +929,15 @@
 ##
 { 'struct': 'RngRandomProperties',
   'base': 'RngProperties',
-  'data': { '*filename': 'str' } }
+  'data': { '*filename': 'str' },
+  'if': 'CONFIG_POSIX' }
 
 ##
-# @SevGuestProperties:
+# @SevCommonProperties:
 #
-# Properties for sev-guest objects.
+# Properties common to objects that are derivatives of sev-common.
 #
 # @sev-device: SEV device to use (default: "/dev/sev")
-#
-# @dh-cert-file: guest owners DH certificate (encoded with base64)
-#
-# @session-file: guest owners session parameters (encoded with base64)
-#
-# @policy: SEV policy value (default: 0x1)
-#
-# @handle: SEV firmware handle (default: 0)
 #
 # @cbitpos: C-bit location in page table entry (default: 0)
 #
@@ -898,17 +948,104 @@
 #     designated guest firmware page for measured boot with -kernel
 #     (default: false) (since 6.2)
 #
-# Since: 2.12
+# Since: 9.1
 ##
-{ 'struct': 'SevGuestProperties',
+{ 'struct': 'SevCommonProperties',
   'data': { '*sev-device': 'str',
-            '*dh-cert-file': 'str',
-            '*session-file': 'str',
-            '*policy': 'uint32',
-            '*handle': 'uint32',
             '*cbitpos': 'uint32',
             'reduced-phys-bits': 'uint32',
             '*kernel-hashes': 'bool' } }
+
+##
+# @SevGuestProperties:
+#
+# Properties for sev-guest objects.
+#
+# @dh-cert-file: guest owners DH certificate (encoded with base64)
+#
+# @session-file: guest owners session parameters (encoded with base64)
+#
+# @policy: SEV policy value (default: 0x1)
+#
+# @handle: SEV firmware handle (default: 0)
+#
+# @legacy-vm-type: Use legacy KVM_SEV_INIT KVM interface for creating
+#    the VM.  The newer KVM_SEV_INIT2 interface, from Linux >= 6.10,
+#    syncs additional vCPU state when initializing the VMSA
+#    structures, which will result in a different guest measurement.
+#    Set this to 'on' to force compatibility with older QEMU or kernel
+#    versions that rely on legacy KVM_SEV_INIT behavior.  'auto' will
+#    behave identically to 'on', but will automatically switch to
+#    using KVM_SEV_INIT2 if the user specifies any additional options
+#    that require it.  If set to 'off', QEMU will require
+#    KVM_SEV_INIT2 unconditionally.
+#    (default: off) (since 9.1)
+#
+# Since: 2.12
+##
+{ 'struct': 'SevGuestProperties',
+  'base': 'SevCommonProperties',
+  'data': { '*dh-cert-file': 'str',
+            '*session-file': 'str',
+            '*policy': 'uint32',
+            '*handle': 'uint32',
+            '*legacy-vm-type': 'OnOffAuto' } }
+
+##
+# @SevSnpGuestProperties:
+#
+# Properties for sev-snp-guest objects.  Most of these are direct
+# arguments for the KVM_SNP_* interfaces documented in the Linux
+# kernel source under
+# Documentation/arch/x86/amd-memory-encryption.rst, which are in turn
+# closely coupled with the SNP_INIT/SNP_LAUNCH_* firmware commands
+# documented in the SEV-SNP Firmware ABI Specification (Rev 0.9).
+#
+# More usage information is also available in the QEMU source tree
+# under docs/amd-memory-encryption.
+#
+# @policy: the 'POLICY' parameter to the SNP_LAUNCH_START command, as
+#     defined in the SEV-SNP firmware ABI (default: 0x30000)
+#
+# @guest-visible-workarounds: 16-byte, base64-encoded blob to report
+#     hypervisor-defined workarounds, corresponding to the 'GOSVW'
+#     parameter of the SNP_LAUNCH_START command defined in the SEV-SNP
+#     firmware ABI (default: all-zero)
+#
+# @id-block: 96-byte, base64-encoded blob to provide the 'ID Block'
+#     structure for the SNP_LAUNCH_FINISH command defined in the
+#     SEV-SNP firmware ABI (default: all-zero)
+#
+# @id-auth: 4096-byte, base64-encoded blob to provide the 'ID
+#     Authentication Information Structure' for the SNP_LAUNCH_FINISH
+#     command defined in the SEV-SNP firmware ABI (default: all-zero)
+#
+# @author-key-enabled: true if 'id-auth' blob contains the 'AUTHOR_KEY'
+#     field defined SEV-SNP firmware ABI (default: false)
+#
+# @host-data: 32-byte, base64-encoded, user-defined blob to provide to
+#     the guest, as documented for the 'HOST_DATA' parameter of the
+#     SNP_LAUNCH_FINISH command in the SEV-SNP firmware ABI (default:
+#     all-zero)
+#
+# @vcek-disabled: Guests are by default allowed to choose between VLEK
+#     (Versioned Loaded Endorsement Key) or VCEK (Versioned Chip
+#     Endorsement Key) when requesting attestation reports from
+#     firmware.  Set this to true to disable the use of VCEK.
+#     (default: false) (since: 9.1)
+#
+# Since: 9.1
+##
+{ 'struct': 'SevSnpGuestProperties',
+  'base': 'SevCommonProperties',
+  'data': {
+            '*policy': 'uint64',
+            '*guest-visible-workarounds': 'str',
+            '*id-block': 'str',
+            '*id-auth': 'str',
+            '*author-key-enabled': 'bool',
+            '*host-data': 'str',
+            '*vcek-disabled': 'bool' } }
 
 ##
 # @ThreadContextProperties:
@@ -937,13 +1074,15 @@
 #
 # Features:
 #
-# @unstable: Member @x-remote-object is experimental.
+# @unstable: Members @x-remote-object and @x-vfio-user-server are
+#     experimental.
 #
 # Since: 6.0
 ##
 { 'enum': 'ObjectType',
   'data': [
     'acpi-generic-initiator',
+    'acpi-generic-port',
     'authz-list',
     'authz-listfile',
     'authz-pam',
@@ -976,6 +1115,8 @@
     { 'name': 'memory-backend-memfd',
       'if': 'CONFIG_LINUX' },
     'memory-backend-ram',
+    { 'name': 'memory-backend-shm',
+      'if': 'CONFIG_POSIX' },
     'pef-guest',
     { 'name': 'pr-manager-helper',
       'if': 'CONFIG_LINUX' },
@@ -988,6 +1129,7 @@
     { 'name': 'secret_keyring',
       'if': 'CONFIG_SECRET_KEYRING' },
     'sev-guest',
+    'sev-snp-guest',
     'thread-context',
     's390-pv-guest',
     'throttle-group',
@@ -1016,6 +1158,7 @@
   'discriminator': 'qom-type',
   'data': {
       'acpi-generic-initiator':     'AcpiGenericInitiatorProperties',
+      'acpi-generic-port':          'AcpiGenericPortProperties',
       'authz-list':                 'AuthZListProperties',
       'authz-listfile':             'AuthZListFileProperties',
       'authz-pam':                  'AuthZPAMProperties',
@@ -1047,6 +1190,8 @@
       'memory-backend-memfd':       { 'type': 'MemoryBackendMemfdProperties',
                                       'if': 'CONFIG_LINUX' },
       'memory-backend-ram':         'MemoryBackendProperties',
+      'memory-backend-shm':         { 'type': 'MemoryBackendShmProperties',
+                                      'if': 'CONFIG_POSIX' },
       'pr-manager-helper':          { 'type': 'PrManagerHelperProperties',
                                       'if': 'CONFIG_LINUX' },
       'qtest':                      'QtestProperties',
@@ -1058,6 +1203,7 @@
       'secret_keyring':             { 'type': 'SecretKeyringProperties',
                                       'if': 'CONFIG_SECRET_KEYRING' },
       'sev-guest':                  'SevGuestProperties',
+      'sev-snp-guest':              'SevSnpGuestProperties',
       'thread-context':             'ThreadContextProperties',
       'throttle-group':             'ThrottleGroupProperties',
       'tls-creds-anon':             'TlsCredsAnonProperties',
@@ -1078,7 +1224,7 @@
 #
 # Since: 2.0
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "object-add",
 #          "arguments": { "qom-type": "rng-random", "id": "rng1",
@@ -1100,7 +1246,7 @@
 #
 # Since: 2.0
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "object-del", "arguments": { "id": "rng1" } }
 #     <- { "return": {} }

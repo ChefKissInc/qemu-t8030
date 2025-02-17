@@ -1,7 +1,7 @@
 /*
  * Apple Display Back End V2 Controller.
  *
- * Copyright (c) 2023-2024 Visual Ehrmanntraut.
+ * Copyright (c) 2023-2025 Visual Ehrmanntraut.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -22,11 +22,8 @@
 
 #include "qemu/osdep.h"
 #include "hw/arm/apple-silicon/dtb.h"
-#include "hw/irq.h"
 #include "hw/sysbus.h"
-#include "qemu/timer.h"
 #include "qom/object.h"
-#include "sysemu/dma.h"
 #include "ui/console.h"
 
 #define TYPE_ADBE_V2 "adbe-v2"
@@ -52,6 +49,6 @@ struct ADBEV2 {
     QemuConsole *console;
 };
 
-ADBEV2 *adbe_v2_create(MachineState *machine, DTBNode *node);
+ADBEV2 *adbe_v2_create(DTBNode *node);
 
 #endif /* HW_DISPLAY_ADBE_V2_H */

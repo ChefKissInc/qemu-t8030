@@ -50,6 +50,7 @@ struct MCHPCIState {
     MemoryRegion tseg_blackhole, tseg_window;
     MemoryRegion smbase_blackhole, smbase_window;
     bool has_smram_at_smbase;
+    bool has_smm_ranges;
     Range pci_hole;
     uint64_t below_4g_mem_size;
     uint64_t above_4g_mem_size;
@@ -179,8 +180,6 @@ struct Q35PCIHost {
 /* D1:F0 PCIE* port*/
 #define MCH_PCIE_DEV                           1
 #define MCH_PCIE_FUNC                          0
-
-uint64_t mch_mcfg_base(void);
 
 /*
  * Arbitrary but unique BNF number for IOAPIC device.

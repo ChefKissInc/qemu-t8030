@@ -21,6 +21,7 @@
 #include "cpu.h"
 #include "internals.h"
 #include "exec/exec-all.h"
+#include "exec/page-protection.h"
 #include "exec/helper-proto.h"
 #include "tcg/tcg-gvec-desc.h"
 #include "fpu/softfloat.h"
@@ -5737,6 +5738,8 @@ void sve_ldN_r(CPUARMState *env, uint64_t *vg, const target_ulong addr,
     reg_last = info.reg_off_last[0];
     host = info.page[0].host;
 
+    set_helper_retaddr(retaddr);
+
     while (reg_off <= reg_last) {
         uint64_t pg = vg[reg_off >> 6];
         do {
@@ -5750,6 +5753,8 @@ void sve_ldN_r(CPUARMState *env, uint64_t *vg, const target_ulong addr,
             mem_off += N << msz;
         } while (reg_off <= reg_last && (reg_off & 63));
     }
+
+    clear_helper_retaddr();
 
     /*
      * Use the slow path to manage the cross-page misalignment.
@@ -5770,6 +5775,8 @@ void sve_ldN_r(CPUARMState *env, uint64_t *vg, const target_ulong addr,
         reg_last = info.reg_off_last[1];
         host = info.page[1].host;
 
+        set_helper_retaddr(retaddr);
+
         do {
             uint64_t pg = vg[reg_off >> 6];
             do {
@@ -5783,6 +5790,8 @@ void sve_ldN_r(CPUARMState *env, uint64_t *vg, const target_ulong addr,
                 mem_off += N << msz;
             } while (reg_off & 63);
         } while (reg_off <= reg_last);
+
+        clear_helper_retaddr();
     }
 }
 
@@ -5933,15 +5942,11 @@ DO_LDN_2(4, dd, MO_64)
 /*
  * Load contiguous data, first-fault and no-fault.
  *
- * For user-only, one could argue that we should hold the mmap_lock during
- * the operation so that there is no race between page_check_range and the
- * load operation.  However, unmapping pages out from under a running thread
- * is extraordinarily unlikely.  This theoretical race condition also affects
- * linux-user/ in its get_user/put_user macros.
- *
- * TODO: Construct some helpers, written in assembly, that interact with
- * host_signal_handler to produce memory ops which can properly report errors
- * without racing.
+ * For user-only, we control the race between page_check_range and
+ * another thread's munmap by using set/clear_helper_retaddr.  Any
+ * SEGV that occurs between those markers is assumed to be because
+ * the guest page vanished.  Keep that block as small as possible
+ * so that unrelated QEMU bugs are not blamed on the guest.
  */
 
 /* Fault on byte I.  All bits in FFR from I are cleared.  The vector
@@ -6092,6 +6097,8 @@ void sve_ldnfff1_r(CPUARMState *env, void *vg, const target_ulong addr,
     reg_last = info.reg_off_last[0];
     host = info.page[0].host;
 
+    set_helper_retaddr(retaddr);
+
     do {
         uint64_t pg = *(uint64_t *)(vg + (reg_off >> 3));
         do {
@@ -6100,9 +6107,11 @@ void sve_ldnfff1_r(CPUARMState *env, void *vg, const target_ulong addr,
                     (cpu_watchpoint_address_matches
                      (env_cpu(env), addr + mem_off, 1 << msz)
                      & BP_MEM_READ)) {
+                    clear_helper_retaddr();
                     goto do_fault;
                 }
                 if (mtedesc && !mte_probe(env, mtedesc, addr + mem_off)) {
+                    clear_helper_retaddr();
                     goto do_fault;
                 }
                 host_fn(vd, reg_off, host + mem_off);
@@ -6111,6 +6120,8 @@ void sve_ldnfff1_r(CPUARMState *env, void *vg, const target_ulong addr,
             mem_off += 1 << msz;
         } while (reg_off <= reg_last && (reg_off & 63));
     } while (reg_off <= reg_last);
+
+    clear_helper_retaddr();
 
     /*
      * MemSingleNF is allowed to fail for any reason.  We have special
@@ -6306,9 +6317,6 @@ void sve_stN_r(CPUARMState *env, uint64_t *vg, target_ulong addr,
 
     flags = info.page[0].flags | info.page[1].flags;
     if (unlikely(flags != 0)) {
-#ifdef CONFIG_USER_ONLY
-        g_assert_not_reached();
-#else
         /*
          * At least one page includes MMIO.
          * Any bus operation can fail with cpu_transaction_failed,
@@ -6339,13 +6347,14 @@ void sve_stN_r(CPUARMState *env, uint64_t *vg, target_ulong addr,
             } while (reg_off & 63);
         } while (reg_off <= reg_last);
         return;
-#endif
     }
 
     mem_off = info.mem_off_first[0];
     reg_off = info.reg_off_first[0];
     reg_last = info.reg_off_last[0];
     host = info.page[0].host;
+
+    set_helper_retaddr(retaddr);
 
     while (reg_off <= reg_last) {
         uint64_t pg = vg[reg_off >> 6];
@@ -6360,6 +6369,8 @@ void sve_stN_r(CPUARMState *env, uint64_t *vg, target_ulong addr,
             mem_off += N << msz;
         } while (reg_off <= reg_last && (reg_off & 63));
     }
+
+    clear_helper_retaddr();
 
     /*
      * Use the slow path to manage the cross-page misalignment.
@@ -6380,6 +6391,8 @@ void sve_stN_r(CPUARMState *env, uint64_t *vg, target_ulong addr,
         reg_last = info.reg_off_last[1];
         host = info.page[1].host;
 
+        set_helper_retaddr(retaddr);
+
         do {
             uint64_t pg = vg[reg_off >> 6];
             do {
@@ -6393,6 +6406,8 @@ void sve_stN_r(CPUARMState *env, uint64_t *vg, target_ulong addr,
                 mem_off += N << msz;
             } while (reg_off & 63);
         } while (reg_off <= reg_last);
+
+        clear_helper_retaddr();
     }
 }
 
@@ -6559,7 +6574,9 @@ void sve_ld1_z(CPUARMState *env, void *vd, uint64_t *vg, void *vm,
                     if (unlikely(info.flags & TLB_MMIO)) {
                         tlb_fn(env, &scratch, reg_off, addr, retaddr);
                     } else {
+                        set_helper_retaddr(retaddr);
                         host_fn(&scratch, reg_off, info.host);
+                        clear_helper_retaddr();
                     }
                 } else {
                     /* Element crosses the page boundary. */
@@ -6781,7 +6798,9 @@ void sve_ldff1_z(CPUARMState *env, void *vd, uint64_t *vg, void *vm,
                     goto fault;
                 }
 
+                set_helper_retaddr(retaddr);
                 host_fn(vd, reg_off, info.host);
+                clear_helper_retaddr();
             }
             reg_off += esize;
         } while (reg_off & 63);
@@ -6985,7 +7004,9 @@ void sve_st1_z(CPUARMState *env, void *vd, uint64_t *vg, void *vm,
     do {
         void *h = host[i];
         if (likely(h != NULL)) {
+            set_helper_retaddr(retaddr);
             host_fn(vd, reg_off, h);
+            clear_helper_retaddr();
         } else if ((vg[reg_off >> 6] >> (reg_off & 63)) & 1) {
             target_ulong addr = base + (off_fn(vm, reg_off) << scale);
             tlb_fn(env, vd, reg_off, addr, retaddr);

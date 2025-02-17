@@ -302,7 +302,7 @@ static void coroutine_fn usb_tcp_host_msg_loop_co(void *opaque)
                 usb_tcp_host_respond_packet(s, pkt);
             } else {
                 warn_report("%s: TCP_USB_CANCEL: packet"
-                            " pid: 0x%x ep: %d id: 0x%llx not found",
+                            " pid: 0x%x ep: %d id: 0x%" PRIx64 " not found",
                             __func__, pkt_hdr.pid, pkt_hdr.ep, pkt_hdr.id);
             }
             break;

@@ -147,30 +147,12 @@ void xen_be_unmap_grant_refs(struct XenLegacyDevice *xendev, void *ptr,
     }
 }
 
-int xen_be_copy_grant_refs(struct XenLegacyDevice *xendev,
-                           bool to_domain,
-                           XenGrantCopySegment segs[],
-                           unsigned int nr_segs)
-{
-    int rc;
-
-    assert(xendev->ops->flags & DEVOPS_FLAG_NEED_GNTDEV);
-
-    rc = qemu_xen_gnttab_grant_copy(xendev->gnttabdev, to_domain, xen_domid,
-                                    segs, nr_segs, NULL);
-    if (rc) {
-        xen_pv_printf(xendev, 0, "xengnttab_grant_copy failed: %s\n",
-                      strerror(-rc));
-    }
-    return rc;
-}
-
 /*
  * get xen backend device, allocate a new one if it doesn't exist.
  */
 static struct XenLegacyDevice *xen_be_get_xendev(const char *type, int dom,
                                                  int dev,
-                                                 struct XenDevOps *ops)
+                                                 const struct XenDevOps *ops)
 {
     struct XenLegacyDevice *xendev;
 
@@ -520,7 +502,7 @@ void xen_be_check_state(struct XenLegacyDevice *xendev)
 struct xenstore_be {
     const char *type;
     int dom;
-    struct XenDevOps *ops;
+    const struct XenDevOps *ops;
 };
 
 static void xenstore_update_be(void *opaque, const char *watch)
@@ -557,7 +539,7 @@ static void xenstore_update_be(void *opaque, const char *watch)
     }
 }
 
-static int xenstore_scan(const char *type, int dom, struct XenDevOps *ops)
+static int xenstore_scan(const char *type, int dom, const struct XenDevOps *ops)
 {
     struct XenLegacyDevice *xendev;
     char path[XEN_BUFSIZE];
@@ -622,27 +604,11 @@ void xen_be_init(void)
     qbus_set_bus_hotplug_handler(xen_sysbus);
 
     xen_set_dynamic_sysbus();
-
-    xen_be_register("vkbd", &xen_kbdmouse_ops);
-#ifdef CONFIG_VIRTFS
-    xen_be_register("9pfs", &xen_9pfs_ops);
-#endif
-#ifdef CONFIG_USB_LIBUSB
-    xen_be_register("qusb", &xen_usb_ops);
-#endif
 }
 
-int xen_be_register(const char *type, struct XenDevOps *ops)
+int xen_be_register(const char *type, const struct XenDevOps *ops)
 {
     char path[50];
-    int rc;
-
-    if (ops->backend_register) {
-        rc = ops->backend_register();
-        if (rc) {
-            return rc;
-        }
-    }
 
     snprintf(path, sizeof(path), "device-model/%u/backends/%s", xen_domid,
              type);

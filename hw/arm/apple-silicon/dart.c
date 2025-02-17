@@ -2,6 +2,7 @@
 #include "hw/arm/apple-silicon/dart.h"
 #include "hw/arm/apple-silicon/dtb.h"
 #include "hw/irq.h"
+#include "hw/qdev-core.h"
 #include "hw/sysbus.h"
 #include "migration/vmstate.h"
 #include "monitor/hmp-target.h"
@@ -534,15 +535,15 @@ AppleDARTState *apple_dart_create(DTBNode *node)
     s = APPLE_DART(dev);
     sbd = SYS_BUS_DEVICE(dev);
 
-    prop = find_dtb_prop(node, "name");
-    g_strlcpy(s->name, (char *)prop->value, sizeof(s->name));
-    dev->id = g_strdup((char *)prop->value);
+    prop = dtb_find_prop(node, "name");
+    g_strlcpy(s->name, (char *)prop->data, sizeof(s->name));
+    dev->id = g_strdup((char *)prop->data);
 
-    prop = find_dtb_prop(node, "page-size");
+    prop = dtb_find_prop(node, "page-size");
     if (!prop || prop->length < 4) {
         s->page_shift = 12;
     } else {
-        s->page_shift = 31 - clz32(*(uint32_t *)prop->value);
+        s->page_shift = 31 - clz32(*(uint32_t *)prop->data);
     }
     s->page_size = 1 << s->page_shift;
     s->page_bits = s->page_size - 1;
@@ -561,30 +562,30 @@ AppleDARTState *apple_dart_create(DTBNode *node)
         g_assert_not_reached();
     }
 
-    prop = find_dtb_prop(node, "sids");
+    prop = dtb_find_prop(node, "sids");
     if (prop && prop->length >= 4) {
-        s->sids = *(uint32_t *)prop->value;
+        s->sids = *(uint32_t *)prop->data;
     }
 
-    prop = find_dtb_prop(node, "bypass");
+    prop = dtb_find_prop(node, "bypass");
     if (prop && prop->length >= 4) {
-        s->bypass = *(uint32_t *)prop->value;
+        s->bypass = *(uint32_t *)prop->data;
     }
 
-    prop = find_dtb_prop(node, "bypass-address");
+    prop = dtb_find_prop(node, "bypass-address");
     if (prop && prop->length >= 8) {
-        s->bypass_address = *(uint64_t *)prop->value;
+        s->bypass_address = *(uint64_t *)prop->data;
     }
 
-    prop = find_dtb_prop(node, "instance");
+    prop = dtb_find_prop(node, "instance");
     g_assert_nonnull(prop);
     g_assert_cmpuint((prop->length / 12) * 12, ==, prop->length);
-    instance = (uint32_t *)prop->value;
+    instance = (uint32_t *)prop->data;
 
-    prop = find_dtb_prop(node, "reg");
+    prop = dtb_find_prop(node, "reg");
     g_assert_nonnull(prop);
 
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
 
 
     for (i = 0; i < prop->length / 16; i++) {
@@ -598,18 +599,17 @@ AppleDARTState *apple_dart_create(DTBNode *node)
 
         switch (*instance) {
         case 'DART': {
-            int i;
             o->type = DART_DART;
 
-            for (i = 0; i < DART_MAX_STREAMS; i++) {
-                if ((1 << i) & s->sids) {
+            for (int j = 0; j < DART_MAX_STREAMS; j++) {
+                if ((1 << j) & s->sids) {
                     g_autofree char *name =
-                        g_strdup_printf("%s-%d-%d", s->name, o->id, i);
-                    o->iommus[i] = g_new0(AppleDARTIOMMUMemoryRegion, 1);
-                    o->iommus[i]->sid = i;
-                    o->iommus[i]->o = o;
+                        g_strdup_printf("%s-%d-%d", s->name, o->id, j);
+                    o->iommus[j] = g_new0(AppleDARTIOMMUMemoryRegion, 1);
+                    o->iommus[j]->sid = j;
+                    o->iommus[j]->o = o;
                     memory_region_init_iommu(
-                        o->iommus[i], sizeof(AppleDARTIOMMUMemoryRegion),
+                        o->iommus[j], sizeof(AppleDARTIOMMUMemoryRegion),
                         TYPE_APPLE_DART_IOMMU_MEMORY_REGION, OBJECT(s), name,
                         1ULL << DART_MAX_VA_BITS);
 
@@ -643,7 +643,9 @@ static void apple_dart_dump_pt(Monitor *mon, AppleDARTInstance *o, hwaddr iova,
 {
     AppleDARTState *s = o->s;
     if (level == 3) {
-        monitor_printf(mon, "\t\t\t0x%llx ... 0x%llx -> 0x%llx %c%c\n",
+        monitor_printf(mon,
+                       "\t\t\t0x" HWADDR_FMT_plx " ... 0x" HWADDR_FMT_plx
+                       " -> 0x%llx %c%c\n",
                        iova << s->page_shift, (iova + 1) << s->page_shift,
                        pte & s->page_mask & DART_TTE_ADDR_MASK,
                        pte & DART_TTE_NO_READ ? '-' : 'r',
@@ -652,13 +654,13 @@ static void apple_dart_dump_pt(Monitor *mon, AppleDARTInstance *o, hwaddr iova,
     }
 
     for (uint64_t i = 0; i <= (s->l_mask[level] >> s->l_shift[level]); i++) {
-        uint64_t pte = entries[i];
+        uint64_t pte2 = entries[i];
 
-        if ((pte & DART_TTE_VALID) ||
-            ((level == 0) && (pte & DART_TTBR_VALID))) {
-            uint64_t pa = pte & s->page_mask & DART_TTE_ADDR_MASK;
+        if ((pte2 & DART_TTE_VALID) ||
+            ((level == 0) && (pte2 & DART_TTBR_VALID))) {
+            uint64_t pa = pte2 & s->page_mask & DART_TTE_ADDR_MASK;
             if (level == 0) {
-                pa = (pte & DART_TTBR_MASK) << DART_TTBR_SHIFT;
+                pa = (pte2 & DART_TTBR_MASK) << DART_TTBR_SHIFT;
             }
             uint64_t next_n_entries = 0;
             if (level < 2) {
@@ -673,7 +675,7 @@ static void apple_dart_dump_pt(Monitor *mon, AppleDARTInstance *o, hwaddr iova,
             }
 
             apple_dart_dump_pt(mon, o, iova | (i << s->l_shift[level]), next,
-                               level + 1, pte);
+                               level + 1, pte2);
         }
     }
 }
@@ -687,7 +689,7 @@ void hmp_info_dart(Monitor *mon, const QDict *qdict)
     if (!name) {
         for (GSList *ele = device_list; ele; ele = ele->next) {
             DeviceState *dev = ele->data;
-            AppleDARTState *dart = ele->data;
+            dart = APPLE_DART(dev);
             monitor_printf(mon, "%s\tPage size: %d\t%d Instances\n", dev->id,
                            dart->page_size, dart->num_instances);
         }
@@ -774,7 +776,7 @@ static void apple_dart_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 
-    dc->reset = apple_dart_reset;
+    device_class_set_legacy_reset(dc, apple_dart_reset);
     dc->desc = "Apple DART IOMMU";
     dc->vmsd = &vmstate_apple_dart;
 }

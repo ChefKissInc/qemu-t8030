@@ -40,9 +40,11 @@ struct AppleSARTState {
     uint32_t reg[0x8000 / sizeof(uint32_t)];
 };
 
-static inline uint64_t sart_get_reg(AppleSARTState *s, uint32_t offset)
+static inline uint32_t sart_get_reg(AppleSARTState *s, uint32_t offset)
 {
-    return *(uint64_t *)((char *)s->reg + offset);
+    g_assert_cmphex(offset + sizeof(uint32_t), <=, sizeof(s->reg));
+    g_assert_cmphex(offset % sizeof(uint32_t), ==, 0);
+    return s->reg[offset / sizeof(uint32_t)];
 }
 
 static inline hwaddr sart_get_region_addr(AppleSARTState *s, int region)
@@ -195,19 +197,24 @@ SysBusDevice *apple_sart_create(DTBNode *node)
     s = APPLE_SART(dev);
     sbd = SYS_BUS_DEVICE(dev);
 
-    prop = find_dtb_prop(node, "name");
-    dev->id = g_strdup((const char *)prop->value);
+    prop = dtb_find_prop(node, "name");
+    dev->id = g_strdup((const char *)prop->data);
 
-    prop = find_dtb_prop(node, "sart-version");
-    g_assert_nonnull(prop);
-    s->version = *(uint32_t *)prop->value;
+    prop = dtb_find_prop(node, "sart-version");
+    if (prop == NULL) {
+        // iOS 13?
+        s->version = 1;
+    } else {
+        g_assert_nonnull(prop);
+        s->version = *(uint32_t *)prop->data;
+    }
     g_assert_cmpuint(s->version, >=, 1);
     g_assert_cmpuint(s->version, <=, 3);
 
-    prop = find_dtb_prop(node, "reg");
+    prop = dtb_find_prop(node, "reg");
     g_assert_nonnull(prop);
 
-    reg = (uint64_t *)prop->value;
+    reg = (uint64_t *)prop->data;
     memory_region_init_io(&s->iomem, OBJECT(dev), &base_reg_ops, s,
                           TYPE_APPLE_SART ".reg", reg[1]);
     sysbus_init_mmio(sbd, &s->iomem);
@@ -224,7 +231,7 @@ static void apple_sart_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
 
-    dc->reset = apple_sart_reset;
+    device_class_set_legacy_reset(dc, apple_sart_reset);
     dc->desc = "Apple SART IOMMU";
 }
 

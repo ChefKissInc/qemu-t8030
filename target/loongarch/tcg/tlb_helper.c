@@ -13,6 +13,7 @@
 #include "internals.h"
 #include "exec/helper-proto.h"
 #include "exec/exec-all.h"
+#include "exec/page-protection.h"
 #include "exec/cpu_ldst.h"
 #include "exec/log.h"
 #include "cpu-csr.h"
@@ -524,6 +525,7 @@ target_ulong helper_lddir(CPULoongArchState *env, target_ulong base,
         if (unlikely(level == 4)) {
             qemu_log_mask(LOG_GUEST_ERROR,
                           "Attempted use of level 4 huge page\n");
+            return base;
         }
 
         if (FIELD_EX64(base, TLBENTRY, LEVEL)) {

@@ -1,9 +1,12 @@
 # Default configuration for arm-softmmu
 
+# Uncomment the following lines to disable these optional devices:
+# CONFIG_I2C_DEVICES=n
 # CONFIG_PCI_DEVICES=n
 # CONFIG_TEST_DEVICES=n
 
-CONFIG_ARM_VIRT=y
+# Boards are selected by default, uncomment to keep out of the build.
+# CONFIG_ARM_VIRT=n
 
 # These are selected by default when TCG is enabled, uncomment them to
 # keep out of the build.
@@ -15,9 +18,7 @@ CONFIG_ARM_VIRT=y
 # CONFIG_MUSICPAL=n
 # CONFIG_MPS3R=n
 # CONFIG_MUSCA=n
-# CONFIG_CHEETAH=n
 # CONFIG_SX1=n
-# CONFIG_NSERIES=n
 # CONFIG_STELLARIS=n
 # CONFIG_STM32VLDISCOVERY=n
 # CONFIG_B_L475E_IOT01A=n
@@ -25,11 +26,6 @@ CONFIG_ARM_VIRT=y
 # CONFIG_VERSATILE=n
 # CONFIG_VEXPRESS=n
 # CONFIG_ZYNQ=n
-# CONFIG_MAINSTONE=n
-# CONFIG_GUMSTIX=n
-# CONFIG_SPITZ=n
-# CONFIG_TOSA=n
-# CONFIG_Z2=n
 # CONFIG_NPCM7XX=n
 # CONFIG_COLLIE=n
 # CONFIG_ASPEED_SOC=n

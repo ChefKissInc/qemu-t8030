@@ -124,7 +124,7 @@ static void vfio_display_edid_ui_info(void *opaque, uint32_t idx,
     }
 }
 
-static void vfio_display_edid_init(VFIOPCIDevice *vdev)
+static bool vfio_display_edid_init(VFIOPCIDevice *vdev, Error **errp)
 {
     VFIODisplay *dpy = vdev->dpy;
     int fd = vdev->vbasedev.fd;
@@ -135,7 +135,8 @@ static void vfio_display_edid_init(VFIOPCIDevice *vdev)
                                    VFIO_REGION_SUBTYPE_GFX_EDID,
                                    &dpy->edid_info);
     if (ret) {
-        return;
+        /* Failed to get GFX edid info, allow to go through without edid. */
+        return true;
     }
 
     trace_vfio_display_edid_available();
@@ -167,13 +168,16 @@ static void vfio_display_edid_init(VFIOPCIDevice *vdev)
                                         vfio_display_edid_link_up, vdev);
 
     vfio_display_edid_update(vdev, true, 0, 0);
-    return;
+    return true;
 
 err:
+    error_setg(errp, "vfio: failed to read GFX edid field");
     trace_vfio_display_edid_write_error();
+    g_free(dpy->edid_info);
     g_free(dpy->edid_regs);
+    dpy->edid_info = NULL;
     dpy->edid_regs = NULL;
-    return;
+    return false;
 }
 
 static void vfio_display_edid_exit(VFIODisplay *dpy)
@@ -182,6 +186,7 @@ static void vfio_display_edid_exit(VFIODisplay *dpy)
         return;
     }
 
+    g_free(dpy->edid_info);
     g_free(dpy->edid_regs);
     g_free(dpy->edid_blob);
     timer_free(dpy->edid_link_timer);
@@ -241,14 +246,11 @@ static VFIODMABuf *vfio_display_get_dmabuf(VFIOPCIDevice *vdev,
 
     dmabuf = g_new0(VFIODMABuf, 1);
     dmabuf->dmabuf_id  = plane.dmabuf_id;
-    dmabuf->buf.width  = plane.width;
-    dmabuf->buf.height = plane.height;
-    dmabuf->buf.backing_width = plane.width;
-    dmabuf->buf.backing_height = plane.height;
-    dmabuf->buf.stride = plane.stride;
-    dmabuf->buf.fourcc = plane.drm_format;
-    dmabuf->buf.modifier = plane.drm_format_mod;
-    dmabuf->buf.fd     = fd;
+    dmabuf->buf = qemu_dmabuf_new(plane.width, plane.height,
+                                  plane.stride, 0, 0, plane.width,
+                                  plane.height, plane.drm_format,
+                                  plane.drm_format_mod, fd, false, false);
+
     if (plane_type == DRM_PLANE_TYPE_CURSOR) {
         vfio_display_update_cursor(dmabuf, &plane);
     }
@@ -260,8 +262,10 @@ static VFIODMABuf *vfio_display_get_dmabuf(VFIOPCIDevice *vdev,
 static void vfio_display_free_one_dmabuf(VFIODisplay *dpy, VFIODMABuf *dmabuf)
 {
     QTAILQ_REMOVE(&dpy->dmabuf.bufs, dmabuf, next);
-    dpy_gl_release_dmabuf(dpy->con, &dmabuf->buf);
-    close(dmabuf->buf.fd);
+
+    qemu_dmabuf_close(dmabuf->buf);
+    dpy_gl_release_dmabuf(dpy->con, dmabuf->buf);
+    g_clear_pointer(&dmabuf->buf, qemu_dmabuf_free);
     g_free(dmabuf);
 }
 
@@ -286,6 +290,7 @@ static void vfio_display_dmabuf_update(void *opaque)
     VFIOPCIDevice *vdev = opaque;
     VFIODisplay *dpy = vdev->dpy;
     VFIODMABuf *primary, *cursor;
+    uint32_t width, height;
     bool free_bufs = false, new_cursor = false;
 
     primary = vfio_display_get_dmabuf(vdev, DRM_PLANE_TYPE_PRIMARY);
@@ -296,11 +301,13 @@ static void vfio_display_dmabuf_update(void *opaque)
         return;
     }
 
+    width = qemu_dmabuf_get_width(primary->buf);
+    height = qemu_dmabuf_get_height(primary->buf);
+
     if (dpy->dmabuf.primary != primary) {
         dpy->dmabuf.primary = primary;
-        qemu_console_resize(dpy->con,
-                            primary->buf.width, primary->buf.height);
-        dpy_gl_scanout_dmabuf(dpy->con, &primary->buf);
+        qemu_console_resize(dpy->con, width, height);
+        dpy_gl_scanout_dmabuf(dpy->con, primary->buf);
         free_bufs = true;
     }
 
@@ -314,7 +321,7 @@ static void vfio_display_dmabuf_update(void *opaque)
     if (cursor && (new_cursor || cursor->hot_updates)) {
         bool have_hot = (cursor->hot_x != 0xffffffff &&
                          cursor->hot_y != 0xffffffff);
-        dpy_gl_cursor_dmabuf(dpy->con, &cursor->buf, have_hot,
+        dpy_gl_cursor_dmabuf(dpy->con, cursor->buf, have_hot,
                              cursor->hot_x, cursor->hot_y);
         cursor->hot_updates = 0;
     } else if (!cursor && new_cursor) {
@@ -328,7 +335,7 @@ static void vfio_display_dmabuf_update(void *opaque)
         cursor->pos_updates = 0;
     }
 
-    dpy_gl_update(dpy->con, 0, 0, primary->buf.width, primary->buf.height);
+    dpy_gl_update(dpy->con, 0, 0, width, height);
 
     if (free_bufs) {
         vfio_display_free_dmabufs(vdev);
@@ -346,11 +353,11 @@ static const GraphicHwOps vfio_display_dmabuf_ops = {
     .ui_info    = vfio_display_edid_ui_info,
 };
 
-static int vfio_display_dmabuf_init(VFIOPCIDevice *vdev, Error **errp)
+static bool vfio_display_dmabuf_init(VFIOPCIDevice *vdev, Error **errp)
 {
     if (!display_opengl) {
         error_setg(errp, "vfio-display-dmabuf: opengl not available");
-        return -1;
+        return false;
     }
 
     vdev->dpy = g_new0(VFIODisplay, 1);
@@ -359,9 +366,11 @@ static int vfio_display_dmabuf_init(VFIOPCIDevice *vdev, Error **errp)
                                           vdev);
     if (vdev->enable_ramfb) {
         vdev->dpy->ramfb = ramfb_setup(errp);
+        if (!vdev->dpy->ramfb) {
+            return false;
+        }
     }
-    vfio_display_edid_init(vdev);
-    return 0;
+    return vfio_display_edid_init(vdev, errp);
 }
 
 static void vfio_display_dmabuf_exit(VFIODisplay *dpy)
@@ -478,7 +487,7 @@ static const GraphicHwOps vfio_display_region_ops = {
     .gfx_update = vfio_display_region_update,
 };
 
-static int vfio_display_region_init(VFIOPCIDevice *vdev, Error **errp)
+static bool vfio_display_region_init(VFIOPCIDevice *vdev, Error **errp)
 {
     vdev->dpy = g_new0(VFIODisplay, 1);
     vdev->dpy->con = graphic_console_init(DEVICE(vdev), 0,
@@ -486,8 +495,11 @@ static int vfio_display_region_init(VFIOPCIDevice *vdev, Error **errp)
                                           vdev);
     if (vdev->enable_ramfb) {
         vdev->dpy->ramfb = ramfb_setup(errp);
+        if (!vdev->dpy->ramfb) {
+            return false;
+        }
     }
-    return 0;
+    return true;
 }
 
 static void vfio_display_region_exit(VFIODisplay *dpy)
@@ -502,7 +514,7 @@ static void vfio_display_region_exit(VFIODisplay *dpy)
 
 /* ---------------------------------------------------------------------- */
 
-int vfio_display_probe(VFIOPCIDevice *vdev, Error **errp)
+bool vfio_display_probe(VFIOPCIDevice *vdev, Error **errp)
 {
     struct vfio_device_gfx_plane_info probe;
     int ret;
@@ -525,11 +537,11 @@ int vfio_display_probe(VFIOPCIDevice *vdev, Error **errp)
 
     if (vdev->display == ON_OFF_AUTO_AUTO) {
         /* not an error in automatic mode */
-        return 0;
+        return true;
     }
 
     error_setg(errp, "vfio: device doesn't support any (known) display method");
-    return -1;
+    return false;
 }
 
 void vfio_display_finalize(VFIOPCIDevice *vdev)

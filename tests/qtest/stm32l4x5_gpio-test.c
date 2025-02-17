@@ -10,6 +10,7 @@
 
 #include "qemu/osdep.h"
 #include "libqtest-single.h"
+#include "stm32l4x5.h"
 
 #define GPIO_BASE_ADDR 0x48000000
 #define GPIO_SIZE      0x400
@@ -42,6 +43,9 @@
 
 #define OTYPER_PUSH_PULL 0
 #define OTYPER_OPEN_DRAIN 1
+
+/* SoC forwards GPIOs to SysCfg */
+#define SYSCFG "/machine/soc"
 
 const uint32_t moder_reset[NUM_GPIOS] = {
     0xABFFFFFF,
@@ -284,7 +288,7 @@ static void test_gpio_output_mode(const void *data)
     uint32_t gpio = test_gpio_addr(data);
     unsigned int gpio_id = get_gpio_id(gpio);
 
-    qtest_irq_intercept_in(global_qtest, "/machine/soc/syscfg");
+    qtest_irq_intercept_in(global_qtest, SYSCFG);
 
     /* Set a bit in ODR and check nothing happens */
     gpio_set_bit(gpio, ODR, pin, 1);
@@ -319,7 +323,7 @@ static void test_gpio_input_mode(const void *data)
     uint32_t gpio = test_gpio_addr(data);
     unsigned int gpio_id = get_gpio_id(gpio);
 
-    qtest_irq_intercept_in(global_qtest, "/machine/soc/syscfg");
+    qtest_irq_intercept_in(global_qtest, SYSCFG);
 
     /* Configure a line as input, raise it, and check that the pin is high */
     gpio_set_2bits(gpio, MODER, pin, MODER_INPUT);
@@ -348,7 +352,7 @@ static void test_pull_up_pull_down(const void *data)
     uint32_t gpio = test_gpio_addr(data);
     unsigned int gpio_id = get_gpio_id(gpio);
 
-    qtest_irq_intercept_in(global_qtest, "/machine/soc/syscfg");
+    qtest_irq_intercept_in(global_qtest, SYSCFG);
 
     /* Configure a line as input with pull-up, check the line is set high */
     gpio_set_2bits(gpio, MODER, pin, MODER_INPUT);
@@ -378,7 +382,7 @@ static void test_push_pull(const void *data)
     uint32_t gpio = test_gpio_addr(data);
     uint32_t gpio2 = GPIO_BASE_ADDR + (GPIO_H - gpio);
 
-    qtest_irq_intercept_in(global_qtest, "/machine/soc/syscfg");
+    qtest_irq_intercept_in(global_qtest, SYSCFG);
 
     /* Setting a line high externally, configuring it in push-pull output */
     /* And checking the pin was disconnected */
@@ -425,7 +429,7 @@ static void test_open_drain(const void *data)
     uint32_t gpio = test_gpio_addr(data);
     uint32_t gpio2 = GPIO_BASE_ADDR + (GPIO_H - gpio);
 
-    qtest_irq_intercept_in(global_qtest, "/machine/soc/syscfg");
+    qtest_irq_intercept_in(global_qtest, SYSCFG);
 
     /* Setting a line high externally, configuring it in open-drain output */
     /* And checking the pin was disconnected */
@@ -502,6 +506,26 @@ static void test_bsrr_brr(const void *data)
     gpio_writel(gpio, ODR, reset(gpio, ODR));
 }
 
+static void test_clock_enable(void)
+{
+    /*
+     * For each GPIO, enable its clock in RCC
+     * and check that its clock period changes to SYSCLK_PERIOD
+     */
+    unsigned int gpio_id;
+
+    for (uint32_t gpio = GPIO_A; gpio <= GPIO_H; gpio += GPIO_B - GPIO_A) {
+        gpio_id = get_gpio_id(gpio);
+        g_autofree char *path = g_strdup_printf("/machine/soc/gpio%c/clk",
+                                                gpio_id + 'a');
+        g_assert_cmpuint(get_clock_period(global_qtest, path), ==, 0);
+        /* Enable the gpio clock */
+        writel(RCC_AHB2ENR, readl(RCC_AHB2ENR) | (0x1 << gpio_id));
+        g_assert_cmpuint(get_clock_period(global_qtest, path), ==,
+                         SYSCLK_PERIOD);
+    }
+}
+
 int main(int argc, char **argv)
 {
     int ret;
@@ -553,6 +577,8 @@ int main(int argc, char **argv)
     qtest_add_data_func("stm32l4x5/gpio/test_bsrr_brr2",
                         test_data(GPIO_D, 0),
                         test_bsrr_brr);
+    qtest_add_func("stm32l4x5/gpio/test_clock_enable",
+                   test_clock_enable);
 
     qtest_start("-machine b-l475e-iot01a");
     ret = g_test_run();

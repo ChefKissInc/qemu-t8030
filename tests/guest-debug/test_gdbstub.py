@@ -2,12 +2,23 @@
 
 """
 from __future__ import print_function
+import argparse
 import gdb
 import os
 import sys
 import traceback
 
 fail_count = 0
+
+
+def gdb_exit(status):
+    gdb.execute(f"exit {status}")
+
+
+class arg_parser(argparse.ArgumentParser):
+    def exit(self, status=None, message=""):
+        print("Wrong GDB script test argument! " + message)
+        gdb_exit(1)
 
 
 def report(cond, msg):
@@ -33,11 +44,11 @@ def main(test, expected_arch=None):
                    "connected to {}".format(expected_arch))
     except (gdb.error, AttributeError):
         print("SKIP: not connected")
-        exit(0)
+        gdb_exit(0)
 
     if gdb.parse_and_eval("$pc") == 0:
         print("SKIP: PC not set")
-        exit(0)
+        gdb_exit(0)
 
     try:
         test()
@@ -57,4 +68,4 @@ def main(test, expected_arch=None):
         pass
 
     print("All tests complete: {} failures".format(fail_count))
-    exit(fail_count)
+    gdb_exit(fail_count)

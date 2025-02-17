@@ -1,7 +1,7 @@
 /*
  * Apple Roswell.
  *
- * Copyright (c) 2023-2024 Visual Ehrmanntraut.
+ * Copyright (c) 2023-2025 Visual Ehrmanntraut.
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -21,19 +21,9 @@
 #define HW_MISC_APPLE_SILICON_ROSWELL_H
 
 #include "qemu/osdep.h"
-#include "hw/i2c/i2c.h"
 #include "qom/object.h"
 
 #define TYPE_APPLE_ROSWELL "apple-roswell"
 OBJECT_DECLARE_SIMPLE_TYPE(AppleRoswellState, APPLE_ROSWELL);
-
-struct AppleRoswellState {
-    /*< private >*/
-    I2CSlave i2c;
-
-    /*< public >*/
-};
-
-void apple_roswell_create(MachineState *machine, uint8_t addr);
 
 #endif /* HW_MISC_APPLE_SILICON_ROSWELL_H */

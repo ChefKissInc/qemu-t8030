@@ -16,20 +16,20 @@
 #     the QMP greeting message.  If the field is not provided, it
 #     means no QMP capabilities will be enabled.  (since 2.12)
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "qmp_capabilities",
 #          "arguments": { "enable": [ "oob" ] } }
 #     <- { "return": {} }
 #
-# Notes: This command is valid exactly when first connecting: it must
-#     be issued before any other command will be accepted, and will
-#     fail once the monitor is accepting other commands.  (see qemu
-#     docs/interop/qmp-spec.rst)
+# .. note:: This command is valid exactly when first connecting: it
+#    must be issued before any other command will be accepted, and
+#    will fail once the monitor is accepting other commands.  (see
+#    :doc:`/interop/qmp-spec`)
 #
-#     The QMP client needs to explicitly enable QMP capabilities,
-#     otherwise all the QMP capabilities will be turned off by
-#     default.
+# .. note:: The QMP client needs to explicitly enable QMP
+#    capabilities, otherwise all the QMP capabilities will be turned
+#    off by default.
 #
 # Since: 0.13
 ##
@@ -98,7 +98,7 @@
 #
 # Since: 0.14
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "query-version" }
 #     <- {
@@ -135,7 +135,7 @@
 #
 # Since: 0.14
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "query-commands" }
 #     <- {
@@ -145,12 +145,12 @@
 #             },
 #             {
 #                "name":"system_powerdown"
-#             }
+#             },
+#             ...
 #          ]
 #        }
 #
-# Note: This example has been shortened as the real response is too
-#     long.
+# This example has been shortened as the real response is too long.
 ##
 { 'command': 'query-commands', 'returns': ['CommandInfo'],
   'allow-preconfig': true }
@@ -165,7 +165,7 @@
 #
 # Since: 0.14
 #
-# Example:
+# .. qmp-example::
 #
 #     -> { "execute": "quit" }
 #     <- { "return": {} }

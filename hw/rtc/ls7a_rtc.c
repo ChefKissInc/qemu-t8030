@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
- * Loongarch LS7A Real Time Clock emulation
+ * LoongArch LS7A Real Time Clock emulation
  *
  * Copyright (C) 2021 Loongson Technology Corporation Limited
  */
@@ -8,7 +8,7 @@
 #include "qemu/osdep.h"
 #include "hw/sysbus.h"
 #include "hw/irq.h"
-#include "include/hw/register.h"
+#include "hw/register.h"
 #include "qemu/timer.h"
 #include "sysemu/sysemu.h"
 #include "qemu/cutils.h"
@@ -469,7 +469,7 @@ static void ls7a_rtc_class_init(ObjectClass *klass, void *data)
     DeviceClass *dc = DEVICE_CLASS(klass);
     dc->vmsd = &vmstate_ls7a_rtc;
     dc->realize = ls7a_rtc_realize;
-    dc->reset = ls7a_rtc_reset;
+    device_class_set_legacy_reset(dc, ls7a_rtc_reset);
     dc->desc = "ls7a rtc";
 }
 
